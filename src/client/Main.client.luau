@@ -17,7 +17,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local plantRemote = remotes:WaitForChild("Plant") :: RemoteFunction
-local harvestRemote = remotes:WaitForChild("Harvest") :: RemoteFunction
+local tapRemote = remotes:WaitForChild("Tap") :: RemoteFunction
 local stateRemote = remotes:WaitForChild("State") :: RemoteEvent
 
 local selectedSpecies = Config.SPECIES[1].id
@@ -114,7 +114,10 @@ toast.AnchorPoint = Vector2.new(0.5, 1)
 toast.Position = UDim2.new(0.5, 0, 1, -40)
 toast.Size = UDim2.new(0, 340, 0, 38)
 toast.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
-toast.BackgroundTransparency = 0.15
+-- Starts fully hidden, background included. It used to start with its text
+-- transparent but its background at 0.15, leaving an empty dark bar on
+-- screen until the first message arrived and its timeout hid both.
+toast.BackgroundTransparency = 1
 toast.BorderSizePixel = 0
 toast.Font = Enum.Font.GothamMedium
 toast.TextSize = 15
@@ -162,13 +165,14 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer
 		return
 	end
 
-	-- Ask the server which action this is, rather than deciding here: the
-	-- client's view of ripeness is a second behind and is not authoritative.
+	-- The client only distinguishes "empty" from "occupied". For an occupied
+	-- tile it sends Tap and lets the server decide harvest versus tend: its
+	-- own view of ripeness is the last state push, up to a second stale.
 	local occupied = latest and latest.tiles[tostring(tileIndex)]
 	local ok, outcome
 	if occupied then
 		ok, outcome = pcall(function()
-			return harvestRemote:InvokeServer(tileIndex)
+			return tapRemote:InvokeServer(tileIndex)
 		end)
 	else
 		ok, outcome = pcall(function()

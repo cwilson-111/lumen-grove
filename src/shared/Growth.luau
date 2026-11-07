@@ -26,10 +26,27 @@ local Config = require(script.Parent.Config)
 
 local Growth = {}
 
+--[[
+	`boost` and `lastTended` are optional so every save written before
+	tending existed loads unchanged: absent means zero boost and never
+	tended. No schema version bump, no migration.
+]]
 export type Tile = {
 	species: string,
 	plantedAt: number,
+	boost: number?,
+	lastTended: number?,
 }
+
+--[[
+	Effective age in seconds: real time since planting plus any tending head
+	start. Every other function here derives from this one number, so
+	tending cannot drift out of agreement between progress, countdown and
+	payout.
+]]
+local function age(tile: Tile, now: number): number
+	return (now - tile.plantedAt) + (tile.boost or 0)
+end
 
 --[[
 	0 at the moment of planting, 1 when ripe. Clamped at both ends: a clock
@@ -41,11 +58,11 @@ function Growth.progress(tile: Tile, now: number): number
 	if not species then
 		return 0
 	end
-	local elapsed = now - tile.plantedAt
-	if elapsed <= 0 then
+	local effective = age(tile, now)
+	if effective <= 0 then
 		return 0
 	end
-	return math.min(elapsed / species.growSeconds, 1)
+	return math.min(effective / species.growSeconds, 1)
 end
 
 function Growth.isRipe(tile: Tile, now: number): boolean
@@ -57,7 +74,49 @@ function Growth.secondsRemaining(tile: Tile, now: number): number
 	if not species then
 		return 0
 	end
-	return math.max(species.growSeconds - (now - tile.plantedAt), 0)
+	return math.max(species.growSeconds - age(tile, now), 0)
+end
+
+--[[
+	Seconds of head start one tend would add right now, or 0 when it would
+	add nothing. Returns the clipped amount rather than a yes/no so the
+	server credits exactly what this says and the cap is enforced in one
+	place: a tend that would overshoot the cap adds only the remainder.
+]]
+function Growth.tendAmount(tile: Tile, now: number): number
+	local species = Config.speciesById(tile.species)
+	if not species or Growth.isRipe(tile, now) then
+		return 0
+	end
+	local cap = species.growSeconds * Config.TEND_MAX_FRACTION
+	local headroom = cap - (tile.boost or 0)
+	if headroom <= 0 then
+		return 0
+	end
+	return math.min(species.growSeconds * Config.TEND_FRACTION, headroom)
+end
+
+--[[
+	Seconds until this tile can be tended again; 0 means now. Scales with the
+	species' grow time (see Config) so tends spread through the grow rather
+	than all landing in its first seconds.
+
+	Independent of the cap on purpose: "cooling down" and "nothing left to
+	gain" are different answers, and the UI shows them differently.
+]]
+function Growth.tendCooldown(tile: Tile, now: number): number
+	if not tile.lastTended then
+		return 0
+	end
+	local species = Config.speciesById(tile.species)
+	if not species then
+		return 0
+	end
+	local period = math.max(
+		species.growSeconds * Config.TEND_COOLDOWN_FRACTION,
+		Config.TEND_COOLDOWN_MIN_SECONDS
+	)
+	return math.max(period - (now - tile.lastTended), 0)
 end
 
 --[[

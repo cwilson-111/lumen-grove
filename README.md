@@ -48,8 +48,37 @@ Three consequences, all deliberate:
 
 Everything else is server-authoritative for the same reason: exploits and a
 progression reset are what cost Grow a Garden its players, not its loop. The
-client sends intents (`Plant(tileIndex, speciesId)`, `Harvest(tileIndex)`) and
-never a price, payout, timestamp or balance — no handler accepts one.
+client sends intents — `Plant(tileIndex, speciesId)` for an empty tile,
+`Tap(tileIndex)` for an occupied one — and never a price, payout, timestamp or
+balance; no handler accepts one. The **server** decides whether a tap harvests
+or tends, because the client's view of ripeness is the last state push, up to
+a second stale.
+
+### Tending: the active layer
+
+*Playtime per user* is a most-important signal, so there has to be something
+to do between harvests. Tapping a growing plant tends it: a head start of 15%
+of its grow time, capped at 50% in total, with a per-tile cooldown.
+
+It keeps the invariant. A tile gains an optional `boost` (seconds) and
+`lastTended`; effective age is `(now − plantedAt) + boost`, still a pure
+function of time, still written only by the server. Old saves without those
+fields load unchanged — no migration.
+
+- **Presence is rewarded, absence is never punished.** Nothing decays; an
+  untended plant grows at exactly its normal rate.
+- **The cap keeps idle play worth it.** Attentive play halves the wait; it
+  cannot zero it.
+- **The cooldown scales with grow time** — 10% of it, floor 4s. A flat 8s let
+  a Voidlily take all four tends in its first 24 seconds and then gave the
+  player nothing to do for five minutes. Scaled, its tends land at 0, 60, 120
+  and 180s, so there is a reason to come back while it ripens.
+
+| Species | Grow | Attentive | Tends at |
+|---|---|---|---|
+| Glowcap | 30s | 15s | 0, 4, 8, 12 |
+| Emberbloom | 120s | 60s | 0, 12, 24, 36 |
+| Voidlily | 600s | 300s | 0, 60, 120, 180 |
 
 `src/server/Profiles.luau` will refuse to play rather than hand out a blank
 grove when a load fails, because a blank profile saved over a real one is how
@@ -96,11 +125,16 @@ redundant and should be deleted.
 
 ### Testing notes, learned the hard way
 
-- `execute_luau` keeps **its own module cache**. `require`ing a ModuleScript
-  there returns a *different instance* than the running game holds, with empty
-  state. Test stateful services through the remotes from the `Client`
-  datamodel, which is the real path anyway; `Server` is fine for inspecting
-  the world.
+- `execute_luau` keeps **its own module cache, across calls**. `require`ing a
+  ModuleScript there returns a *different instance* than the running game
+  holds, with empty state — and keeps returning the version from your *first*
+  call even after a redeploy. Two fixes, for two cases:
+  - **Stateful services:** test through the remotes from the `Client`
+    datamodel, which is the real path anyway.
+  - **Pure modules after a change:** require a clone, so they are new
+    instances: `local fresh = ReplicatedStorage.Shared:Clone()`, parent it
+    somewhere, `require(fresh.Growth)`, then `fresh:Destroy()`. Cloning the
+    *folder* matters — `Growth` requires its sibling `Config`.
 - Every bridge tool requires `studio_id`; `execute_luau` also requires
   `datamodel_type` of `Edit` / `Client` / `Server`.
 - `list_roblox_studios` returns `{"studios":[]}` for about a second after the
@@ -111,8 +145,8 @@ redundant and should be deleted.
 
 ## Not built yet
 
-- The active layer that earns the playtime signal — tending, defending,
-  laying out the plot.
+- A second active mechanic: plot layout, with adjacency bonuses between
+  species, so arranging the grid is worth time.
 - Monetization: cosmetic plot skins, a second plot slot, time-skips that never
   gate content.
 - Co-op: helping on a friend's plot, rewarded and never required.

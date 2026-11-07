@@ -147,7 +147,18 @@ local function renderTile(player: Player, index: number)
 	plant.Transparency = ripe and 0 or 0.45 - progress * 0.35
 
 	if prompt then
-		prompt.ActionText = ripe and "Harvest" or ("%ds"):format(Growth.secondsRemaining(saved, now))
+		local remaining = Growth.secondsRemaining(saved, now)
+		if ripe then
+			prompt.ActionText = "Harvest"
+		elseif Growth.tendAmount(saved, now) <= 0 then
+			-- Fully tended: nothing more to gain, so do not invite a press
+			-- that can only be refused.
+			prompt.ActionText = ("Growing %ds"):format(remaining)
+		elseif Growth.tendCooldown(saved, now) > 0 then
+			prompt.ActionText = ("Tend in %ds · %ds"):format(Growth.tendCooldown(saved, now), remaining)
+		else
+			prompt.ActionText = ("Tend · %ds"):format(remaining)
+		end
 	end
 end
 
@@ -223,6 +234,60 @@ function PlotService.harvest(player: Player, tileIndex: number): Outcome
 	profile.harvested += 1
 	renderTile(player, tileIndex)
 	return { ok = true, message = ("+%d lumen."):format(payout) }
+end
+
+function PlotService.tend(player: Player, tileIndex: number): Outcome
+	local profile = Profiles.get(player)
+	if not profile then
+		return { ok = false, message = "Your grove is still loading." }
+	end
+	if typeof(tileIndex) ~= "number" or tileIndex % 1 ~= 0 or tileIndex < 1 or tileIndex > Config.TILE_COUNT then
+		return { ok = false, message = "No such tile." }
+	end
+
+	local saved = profile.tiles[tostring(tileIndex)]
+	if not saved then
+		return { ok = false, message = "Nothing growing there." }
+	end
+
+	local now = os.time()
+	local cooldown = Growth.tendCooldown(saved, now)
+	if cooldown > 0 then
+		return { ok = false, message = ("Let it rest %ds."):format(cooldown) }
+	end
+	local amount = Growth.tendAmount(saved, now)
+	if amount <= 0 then
+		return { ok = false, message = "It's had all the tending it can use." }
+	end
+
+	-- Both written from this machine's clock and Growth's own answer; nothing
+	-- here comes from the client but the index, already validated above.
+	saved.boost = (saved.boost or 0) + amount
+	saved.lastTended = now
+	renderTile(player, tileIndex)
+	return { ok = true, message = ("Tended — %ds sooner."):format(math.floor(amount + 0.5)) }
+end
+
+--[[
+	The only intent for an occupied tile. The server, not the client, decides
+	whether that means harvest or tend: the client's view of ripeness is the
+	last state push, up to a second stale, and a client that picked "tend" on
+	a plant that had just ripened would be told no for no reason the player
+	could see.
+]]
+function PlotService.tap(player: Player, tileIndex: number): Outcome
+	local profile = Profiles.get(player)
+	if not profile then
+		return { ok = false, message = "Your grove is still loading." }
+	end
+	if typeof(tileIndex) ~= "number" or tileIndex % 1 ~= 0 or tileIndex < 1 or tileIndex > Config.TILE_COUNT then
+		return { ok = false, message = "No such tile." }
+	end
+	local saved = profile.tiles[tostring(tileIndex)]
+	if saved and Growth.isRipe(saved, os.time()) then
+		return PlotService.harvest(player, tileIndex)
+	end
+	return PlotService.tend(player, tileIndex)
 end
 
 -- -- lifecycle --------------------------------------------------------- --

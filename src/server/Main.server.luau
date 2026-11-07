@@ -3,9 +3,10 @@
 	Server entry point: wires remotes, loads profiles, drives the cosmetic
 	refresh tick, and saves.
 
-	The remote surface is deliberately two events and one value:
-	  Plant(tileIndex, speciesId)  -- intent
-	  Harvest(tileIndex)           -- intent
+	The remote surface is deliberately two intents and one state push:
+	  Plant(tileIndex, speciesId)  -- an empty tile
+	  Tap(tileIndex)               -- an occupied tile; the server decides
+	                                  whether that harvests or tends it
 	  State -> profile summary     -- server tells the client what is true
 
 	Nothing flows the other way as a number. The client cannot send a
@@ -50,7 +51,7 @@ local function ensureRemote(className: string, name: string): any
 end
 
 local plantRemote: RemoteFunction = ensureRemote("RemoteFunction", "Plant")
-local harvestRemote: RemoteFunction = ensureRemote("RemoteFunction", "Harvest")
+local tapRemote: RemoteFunction = ensureRemote("RemoteFunction", "Tap")
 local stateRemote: RemoteEvent = ensureRemote("RemoteEvent", "State")
 
 -- -- state push ---------------------------------------------------------- --
@@ -130,8 +131,8 @@ plantRemote.OnServerInvoke = function(player: Player, tileIndex: any, speciesId:
 	return outcome
 end
 
-harvestRemote.OnServerInvoke = function(player: Player, tileIndex: any)
-	local outcome = PlotService.harvest(player, tileIndex)
+tapRemote.OnServerInvoke = function(player: Player, tileIndex: any)
+	local outcome = PlotService.tap(player, tileIndex)
 	pushState(player)
 	return outcome
 end
