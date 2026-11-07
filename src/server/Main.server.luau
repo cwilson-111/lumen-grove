@@ -3,11 +3,15 @@
 	Server entry point: wires remotes, loads profiles, drives the cosmetic
 	refresh tick, and saves.
 
-	The remote surface is deliberately two intents and one state push:
+	The remote surface is deliberately three intents and one state push:
 	  Plant(tileIndex, speciesId)  -- an empty tile
 	  Tap(tileIndex)               -- an occupied tile; the server decides
 	                                  whether that harvests or tends it
+	  Skin(skinId)                 -- equip a skin the player owns
 	  State -> profile summary     -- server tells the client what is true
+
+	Buying a skin is not a remote: the client opens Roblox's own purchase
+	prompt, and Roblox tells the server what was bought (see Skins).
 
 	Nothing flows the other way as a number. The client cannot send a
 	balance, a payout or a timestamp, because no handler accepts one.
@@ -20,6 +24,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Growth = require(ReplicatedStorage.Shared.Growth)
 local PlotService = require(script.Parent.PlotService)
 local Profiles = require(script.Parent.Profiles)
+local Skins = require(script.Parent.Skins)
 
 local AUTOSAVE_SECONDS = 60
 local RENDER_SECONDS = 1
@@ -53,6 +58,7 @@ end
 local plantRemote: RemoteFunction = ensureRemote("RemoteFunction", "Plant")
 local tapRemote: RemoteFunction = ensureRemote("RemoteFunction", "Tap")
 local stateRemote: RemoteEvent = ensureRemote("RemoteEvent", "State")
+local skinRemote: RemoteFunction = ensureRemote("RemoteFunction", "Skin")
 
 -- -- state push ---------------------------------------------------------- --
 
@@ -78,7 +84,13 @@ local function summarise(player: Player)
 			}
 		end
 	end
-	return { lumen = profile.lumen, harvested = profile.harvested, tiles = tiles }
+	return {
+		lumen = profile.lumen,
+		harvested = profile.harvested,
+		tiles = tiles,
+		skin = Skins.shown(player).id,
+		ownedSkins = Skins.ownedIds(player),
+	}
 end
 
 local function pushState(player: Player)
@@ -100,6 +112,7 @@ local function onPlayerAdded(player: Player)
 	end
 
 	local plot = PlotService.assign(player)
+	task.spawn(Skins.load, player)
 
 	-- Offline growth needs no catch-up pass: progress is derived from the
 	-- planting timestamp, so a plant left overnight is simply ripe on sight.
@@ -120,6 +133,7 @@ end
 
 local function onPlayerRemoving(player: Player)
 	PlotService.release(player)
+	Skins.release(player)
 	Profiles.release(player)
 end
 
@@ -137,10 +151,17 @@ tapRemote.OnServerInvoke = function(player: Player, tileIndex: any)
 	return outcome
 end
 
+skinRemote.OnServerInvoke = function(player: Player, skinId: any)
+	local outcome = Skins.equip(player, skinId)
+	pushState(player)
+	return outcome
+end
+
 -- -- ticks ------------------------------------------------------------------ --
 
 PlotService.init()
 Profiles.bindToClose()
+Skins.init(pushState)
 
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(onPlayerAdded, player)

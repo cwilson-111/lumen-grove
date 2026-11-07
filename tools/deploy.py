@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Push src/ into the open Roblox Studio place over the MCP bridge.
+"""Build the Luau that writes src/ into the open Roblox Studio place.
 
-    python3 tools/deploy.py          # sync every script
-    python3 tools/deploy.py --dry    # show what would be written
+    python3 tools/deploy.py > /tmp/deploy.luau   # Luau on stdout, summary on stderr
+    python3 tools/deploy.py --dry                # show what would be written
+
+The output is one self-contained chunk for Studio MCP's `execute_luau`, run
+against the **Edit** datamodel. This script does not talk to Studio itself:
+the MCP client (omp, Claude Code) already holds the bridge connection, so the
+script only has to produce the code it sends.
 
 Mapping, by filename suffix:
 
@@ -23,9 +28,6 @@ source itself.
 import argparse
 import pathlib
 import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from studio import Session, StudioError  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -103,9 +105,25 @@ return table.concat(written, "\\n")
 """
 
 
+def build(found) -> str:
+    """The `execute_luau` chunk that writes every `found` target."""
+    entries = []
+    for path, class_name, area, name in found:
+        entries.append(
+            "{area = %s, name = %s, class = %s, source = %s}"
+            % (
+                long_string(area),
+                long_string(name),
+                long_string(class_name),
+                long_string(path.read_text(encoding="utf-8")),
+            )
+        )
+    return "local FILES = {\n" + ",\n".join(entries) + "\n}\n" + DEPLOY_LUAU
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--dry", action="store_true", help="List targets, write nothing")
+    parser.add_argument("--dry", action="store_true", help="List targets, emit nothing")
     args = parser.parse_args(argv)
 
     found = list(targets())
@@ -113,31 +131,12 @@ def main(argv=None):
         print(f"deploy.py: no .luau files under {SRC}", file=sys.stderr)
         return 1
 
-    entries = []
     for path, class_name, area, name in found:
-        source = path.read_text(encoding="utf-8")
-        print(f"{class_name:14} {area}.{name:16} <- {path.relative_to(ROOT)} ({len(source)}B)")
-        entries.append(
-            "{area = %s, name = %s, class = %s, source = %s}"
-            % (
-                long_string(area),
-                long_string(name),
-                long_string(class_name),
-                long_string(source),
-            )
-        )
+        size = path.stat().st_size
+        print(f"{class_name:14} {area}.{name:16} <- {path.relative_to(ROOT)} ({size}B)", file=sys.stderr)
 
-    if args.dry:
-        return 0
-
-    code = "local FILES = {\n" + ",\n".join(entries) + "\n}\n" + DEPLOY_LUAU
-    try:
-        with Session() as studio:
-            print("---")
-            print(studio.luau(code, "Edit"))
-    except StudioError as exc:
-        print(f"deploy.py: {exc}", file=sys.stderr)
-        return 1
+    if not args.dry:
+        sys.stdout.write(build(found))
     return 0
 
 

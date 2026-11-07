@@ -49,8 +49,6 @@ local function buildPlot(slot: number): Model
 		Config.TILES_PER_ROW * Config.TILE_STUDS + 6
 	)
 	base.Position = origin
-	base.Color = Color3.fromRGB(46, 52, 64)
-	base.Material = Enum.Material.Slate
 	base.TopSurface = Enum.SurfaceType.Smooth
 	base.Parent = model
 	model.PrimaryPart = base
@@ -61,8 +59,6 @@ local function buildPlot(slot: number): Model
 		tile.Anchored = true
 		tile.Size = Vector3.new(Config.TILE_STUDS - 1, 0.4, Config.TILE_STUDS - 1)
 		tile.Position = origin + tileOffset(index) + Vector3.new(0, 0.7, 0)
-		tile.Color = Color3.fromRGB(70, 78, 94)
-		tile.Material = Enum.Material.Sand
 		tile.TopSurface = Enum.SurfaceType.Smooth
 		tile.Parent = model
 
@@ -81,6 +77,57 @@ local function buildPlot(slot: number): Model
 
 	model.Parent = plotsFolder
 	return model
+end
+
+--[[
+	Repaint a plot in a skin. Touches colour, material and the optional rim and
+	nothing else: no part a prompt, a plant or the economy depends on is
+	created or destroyed here, except the rim, which nothing reads.
+]]
+local function paint(plot: Model, skin: Config.Skin)
+	local base = plot:FindFirstChild("Base") :: Part?
+	if not base then
+		return
+	end
+	base.Color = skin.baseColour
+	base.Material = skin.baseMaterial
+	for index = 1, Config.TILE_COUNT do
+		local tile = plot:FindFirstChild("Tile" .. index) :: Part?
+		if tile then
+			tile.Color = skin.tileColour
+			tile.Material = skin.tileMaterial
+		end
+	end
+
+	local oldTrim = plot:FindFirstChild("Trim")
+	if oldTrim then
+		oldTrim:Destroy()
+	end
+	local trimColour = skin.trimColour
+	if not trimColour then
+		return
+	end
+	local trim = Instance.new("Model")
+	trim.Name = "Trim"
+	local size = base.Size
+	local edges = {
+		{ Vector3.new(0, 0, size.Z / 2), Vector3.new(size.X + 1, 0.5, 1) },
+		{ Vector3.new(0, 0, -size.Z / 2), Vector3.new(size.X + 1, 0.5, 1) },
+		{ Vector3.new(size.X / 2, 0, 0), Vector3.new(1, 0.5, size.Z + 1) },
+		{ Vector3.new(-size.X / 2, 0, 0), Vector3.new(1, 0.5, size.Z + 1) },
+	}
+	for _, edge in edges do
+		local strip = Instance.new("Part")
+		strip.Anchored = true
+		strip.CanCollide = false
+		strip.CastShadow = false
+		strip.Material = Enum.Material.Neon
+		strip.Color = trimColour
+		strip.Size = edge[2]
+		strip.Position = base.Position + edge[1] + Vector3.new(0, size.Y / 2 + 0.25, 0)
+		strip.Parent = trim
+	end
+	trim.Parent = plot
 end
 
 local function plantPart(plot: Model, index: number): Part?
@@ -312,7 +359,20 @@ function PlotService.assign(player: Player): Model
 	local plot = plotModels[slot] or buildPlot(slot)
 	plotModels[slot] = plot
 	plot:SetAttribute("OwnerUserId", player.UserId)
+	-- The default until Skins has checked what this player owns.
+	paint(plot, Config.SKINS[1])
 	return plot
+end
+
+--[[
+	Paint a player's plot. Which skin they may show is Skins' decision; this
+	only draws it.
+]]
+function PlotService.paintSkin(player: Player, skin: Config.Skin)
+	local plot = PlotService.plotOf(player)
+	if plot then
+		paint(plot, skin)
+	end
 end
 
 function PlotService.release(player: Player)
@@ -327,6 +387,8 @@ function PlotService.release(player: Player)
 				existing:Destroy()
 			end
 		end
+		-- The next owner of this slot should not inherit someone else's skin.
+		paint(plot, Config.SKINS[1])
 	end
 end
 

@@ -84,44 +84,67 @@ fields load unchanged — no migration.
 grove when a load fails, because a blank profile saved over a real one is how
 a transient outage becomes permanent data loss.
 
+### Plot skins: the first thing for sale
+
+Since August 2026, *spend days per user* and *Robux spent per user* rank
+alongside retention. The first purchase had to be one that cannot feel like a
+paywall, so it is purely cosmetic: a skin repaints your plot (base, tiles, a
+glowing rim) for everyone in the server, and no growth, payout or tending
+number reads it.
+
+| Skin | Price | Game pass |
+|---|---|---|
+| Slate | free, default | — |
+| Crystal Hollow | R$ 49 | `2075151059` |
+| Ember Hearth | R$ 99 | `2074455097` |
+| Starfall | R$ 149 | `2074929162` |
+
+- **Game passes, not developer products.** A skin is owned once and forever.
+  Roblox keeps the record of pass ownership, so a lost save cannot lose a
+  purchase, a refund is respected, and a pass cannot be bought twice. There is
+  no `ProcessReceipt` to make idempotent because there is no receipt.
+- **Ownership is never saved.** `src/server/Skins.luau` re-reads it with
+  `UserOwnsGamePassAsync` on every join and adds to it when Roblox fires
+  `PromptGamePassPurchaseFinished` in-session. The profile stores only the
+  *equipped* id, a preference.
+- **A failed check never unequips.** If Roblox cannot confirm a pass, the
+  plot shows the default for that session; `profile.skin` is left alone and
+  the skin returns on the next join that can confirm it.
+- **Prices live on the passes**, not in Config. The client reads them with
+  `GetProductInfo`, so the button can never disagree with the prompt.
+- Pass icons are in `assets/passes/`.
+
 ## Layout
 
 ```
-src/shared/Config.luau     tunables; species, costs, grow times
+src/shared/Config.luau     tunables; species, costs, grow times, skins
 src/shared/Growth.luau     the pure growth/payout math
 src/server/Profiles.luau   DataStore persistence, versioned, retrying
 src/server/PlotService.luau  authoritative plot state and world rendering
+src/server/Skins.luau      skin ownership (game passes) and equipping
 src/server/Main.server.luau  remotes, join/leave, autosave, cosmetic tick
-src/client/Main.client.luau  balance readout, spore picker, prompt handling
+src/client/Main.client.luau  balance, spore picker, skin picker, prompts
 ```
 
 ## Working on it
 
 Studio's built-in MCP bridge drives everything; there is no manual copy-paste.
+The MCP client (omp, or Claude Code) holds the connection and exposes the
+Studio tools directly: `execute_luau`, `start_stop_play`, `screen_capture`,
+`get_console_output`, and the rest.
 
 Prerequisites: Studio open on a **published** place (an unpublished one has no
 universe, and the bridge will not attach), with **Assistant → … → Manage MCP
 Servers → Enable Studio as MCP server** on.
 
 ```sh
-python3 tools/deploy.py          # push src/ into the open place
-python3 tools/deploy.py --dry    # show what would be written
-
-python3 tools/studio.py state    # attached instance, Edit/Play mode
-python3 tools/studio.py play on  # start a playtest
-python3 tools/studio.py console  # read the output log
-python3 tools/studio.py shot     # capture the viewport
-python3 tools/studio.py luau 'return #workspace:GetChildren()'
-python3 tools/studio.py luau --datamodel Client 'return 1 + 1'
+python3 tools/deploy.py > /tmp/deploy.luau   # Luau that writes src/ into the place
+python3 tools/deploy.py --dry                # show what would be written
 ```
 
-`deploy.py` needs Edit mode — stop the playtest first, or it reports
-`Edit datamodel is not available in Play mode`.
-
-`tools/studio.py` exists because omp resolves MCP servers at session start; a
-session started before `~/.omp/agent/mcp.json` was written cannot call the
-Studio tools directly. Once a restarted session has them natively, this is
-redundant and should be deleted.
+`deploy.py` does not talk to Studio. It prints one Luau chunk; send it with
+`execute_luau` against the **Edit** datamodel. Stop the playtest first, or
+the bridge reports `Edit datamodel is not available in Play mode`.
 
 ### Testing notes, learned the hard way
 
@@ -142,13 +165,20 @@ redundant and should be deleted.
 - DataStores are off in Studio by default. The game degrades to an in-memory
   store and says so. For real save testing: **Game Settings → Security →
   Enable Studio Access to API Services**.
+- **The creator owns every pass they create.** In Studio on the owner's
+  account, `UserOwnsGamePassAsync` is true for all three skins, so the
+  purchase path cannot be exercised there — only equipping. Test buying with
+  an account that is not the owner.
+- The `SpawnLocation` sat at the same height as Plot1's base, overlapping it,
+  and its decal z-fought through the gaps between tiles. It now sits at
+  `(0, 0.5, -40)`, clear of the plot row; keep anything else off that row.
 
 ## Not built yet
 
 - A second active mechanic: plot layout, with adjacency bonuses between
   species, so arranging the grid is worth time.
-- Monetization: cosmetic plot skins, a second plot slot, time-skips that never
-  gate content.
+- Monetization, continued: a second plot slot, then time-skips that never
+  gate content. Tending stays the free version of a time-skip.
 - Co-op: helping on a friend's plot, rewarded and never required.
 - A custom thumbnail. **Required** for any Home impressions — a place with the
   default thumbnail is ineligible.
