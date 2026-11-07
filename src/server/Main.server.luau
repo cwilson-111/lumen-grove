@@ -3,12 +3,15 @@
 	Server entry point: wires remotes, loads profiles, drives the cosmetic
 	refresh tick, and saves.
 
-	The remote surface is deliberately three intents and one state push:
+	The remote surface is deliberately four intents and two pushes:
 	  Plant(tileIndex, speciesId)  -- an empty tile
 	  Tap(tileIndex)               -- an occupied tile; the server decides
 	                                  whether that harvests or tends it
+	  Expand()                     -- buy the next tile; no argument, since
+	                                  only the next one is ever for sale
 	  Skin(skinId)                 -- equip a skin the player owns
 	  State -> profile summary     -- server tells the client what is true
+	  Announce -> text             -- server tells everyone about a rare find
 
 	Buying a skin is not a remote: the client opens Roblox's own purchase
 	prompt, and Roblox tells the server what was bought (see Skins).
@@ -59,13 +62,16 @@ local plantRemote: RemoteFunction = ensureRemote("RemoteFunction", "Plant")
 local tapRemote: RemoteFunction = ensureRemote("RemoteFunction", "Tap")
 local stateRemote: RemoteEvent = ensureRemote("RemoteEvent", "State")
 local skinRemote: RemoteFunction = ensureRemote("RemoteFunction", "Skin")
+local expandRemote: RemoteFunction = ensureRemote("RemoteFunction", "Expand")
+local announceRemote: RemoteEvent = ensureRemote("RemoteEvent", "Announce")
 
 -- -- state push ---------------------------------------------------------- --
 
 --[[
 	What the client is allowed to know: its own balance and its own tiles.
 	Built fresh rather than sending the profile table, so a field added to
-	the save later is not leaked to the client by accident.
+	the save later is not leaked to the client by accident -- which is what
+	keeps a tile's mutation hidden until the harvest reveals it.
 ]]
 local function summarise(player: Player)
 	local profile = Profiles.get(player)
@@ -87,6 +93,7 @@ local function summarise(player: Player)
 	return {
 		lumen = profile.lumen,
 		harvested = profile.harvested,
+		tileCount = profile.tileCount,
 		tiles = tiles,
 		skin = Skins.shown(player).id,
 		ownedSkins = Skins.ownedIds(player),
@@ -147,6 +154,18 @@ end
 
 tapRemote.OnServerInvoke = function(player: Player, tileIndex: any)
 	local outcome = PlotService.tap(player, tileIndex)
+	pushState(player)
+	local mutation = Config.mutationById(outcome.mutation)
+	if mutation and mutation.announce then
+		announceRemote:FireAllClients(
+			("%s harvested a %s %s!"):format(player.DisplayName, mutation.name, outcome.species or "plant")
+		)
+	end
+	return outcome
+end
+
+expandRemote.OnServerInvoke = function(player: Player)
+	local outcome = PlotService.expand(player)
 	pushState(player)
 	return outcome
 end

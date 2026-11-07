@@ -36,6 +36,9 @@ export type Tile = {
 	plantedAt: number,
 	boost: number?,
 	lastTended: number?,
+	-- Rolled by the server at planting; nil means no mutation. Optional for
+	-- the same reason as boost: older saves load unchanged.
+	mutation: string?,
 }
 
 --[[
@@ -130,7 +133,8 @@ function Growth.payout(tile: Tile, now: number): number
 	if not species or not Growth.isRipe(tile, now) then
 		return 0
 	end
-	return species.value
+	local mutation = Config.mutationById(tile.mutation)
+	return species.value * (mutation and mutation.multiplier or 1)
 end
 
 return Growth

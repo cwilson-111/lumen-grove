@@ -14,6 +14,7 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Format = require(ReplicatedStorage.Shared:WaitForChild("Format"))
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -21,9 +22,14 @@ local plantRemote = remotes:WaitForChild("Plant") :: RemoteFunction
 local tapRemote = remotes:WaitForChild("Tap") :: RemoteFunction
 local stateRemote = remotes:WaitForChild("State") :: RemoteEvent
 local skinRemote = remotes:WaitForChild("Skin") :: RemoteFunction
+local expandRemote = remotes:WaitForChild("Expand") :: RemoteFunction
+local announceRemote = remotes:WaitForChild("Announce") :: RemoteEvent
 
 local selectedSpecies = Config.SPECIES[1].id
 local latest: any = nil
+-- Declared here, defined with the toast below, so handlers built before
+-- the toast exists can still call it.
+local say: (message: string, good: boolean) -> ()
 
 -- -- widgets ----------------------------------------------------------- --
 
@@ -77,11 +83,23 @@ pickerTitle.Parent = picker
 
 local buttons: { [string]: TextButton } = {}
 
+local function harvestedSoFar(): number
+	return latest and latest.harvested or 0
+end
+
 local function refreshPicker()
-	for id, button in buttons do
-		local chosen = id == selectedSpecies
+	for _, species in Config.SPECIES do
+		local button = buttons[species.id]
+		local locked = harvestedSoFar() < species.unlockHarvests
+		local chosen = species.id == selectedSpecies
+		button.BackgroundColor3 = locked and Color3.fromRGB(60, 64, 76) or species.colour
 		button.BackgroundTransparency = chosen and 0 or 0.72
-		button.TextColor3 = chosen and Color3.fromRGB(14, 16, 20) or Color3.fromRGB(226, 232, 242)
+		button.TextColor3 = chosen and Color3.fromRGB(14, 16, 20)
+			or locked and Color3.fromRGB(140, 146, 160)
+			or Color3.fromRGB(226, 232, 242)
+		button.Text = locked
+				and ("%s  ·  at %d harvests"):format(species.name, species.unlockHarvests)
+			or ("%s  ·  %d  ·  %s"):format(species.name, species.cost, Format.duration(species.growSeconds))
 	end
 end
 
@@ -90,12 +108,10 @@ for index, species in Config.SPECIES do
 	button.Name = species.id
 	button.Size = UDim2.new(1, -28, 0, 36)
 	button.Position = UDim2.new(0, 14, 0, 34 + (index - 1) * 44)
-	button.BackgroundColor3 = species.colour
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
 	button.Font = Enum.Font.GothamMedium
 	button.TextSize = 14
-	button.Text = ("%s  ·  %d  ·  %ds"):format(species.name, species.cost, species.growSeconds)
 	button.Parent = picker
 
 	local corner = Instance.new("UICorner")
@@ -103,6 +119,12 @@ for index, species in Config.SPECIES do
 	corner.Parent = button
 
 	button.Activated:Connect(function()
+		local remaining = species.unlockHarvests - harvestedSoFar()
+		if remaining > 0 then
+			-- Advisory: the server checks the same thing on Plant.
+			say(("%d more harvests to unlock %s."):format(remaining, species.name), false)
+			return
+		end
 		selectedSpecies = species.id
 		refreshPicker()
 	end)
@@ -133,7 +155,7 @@ toastCorner.CornerRadius = UDim.new(0, 9)
 toastCorner.Parent = toast
 
 local toastToken = 0
-local function say(message: string, good: boolean)
+say = function(message: string, good: boolean)
 	toastToken += 1
 	local token = toastToken
 	toast.Text = message
@@ -147,6 +169,33 @@ local function say(message: string, good: boolean)
 		end
 	end)
 end
+
+-- Server-wide news: someone found something rare. Top-centre and longer
+-- lived than the toast, so it reads as an event, not feedback on a click.
+local banner = toast:Clone()
+banner.Name = "Banner"
+banner.AnchorPoint = Vector2.new(0.5, 0)
+banner.Position = UDim2.new(0.5, 0, 0, 16)
+banner.Size = UDim2.new(0, 460, 0, 44)
+banner.TextSize = 17
+banner.Font = Enum.Font.GothamBold
+banner.Parent = gui
+
+local bannerToken = 0
+announceRemote.OnClientEvent:Connect(function(text: string)
+	bannerToken += 1
+	local token = bannerToken
+	banner.Text = text
+	banner.TextColor3 = Color3.fromRGB(255, 222, 140)
+	banner.TextTransparency = 0
+	banner.BackgroundTransparency = 0.15
+	task.delay(5, function()
+		if bannerToken == token then
+			banner.TextTransparency = 1
+			banner.BackgroundTransparency = 1
+		end
+	end)
+end)
 
 -- -- skins --------------------------------------------------------------- --
 
@@ -261,6 +310,7 @@ stateRemote.OnClientEvent:Connect(function(summary)
 	-- missing codepoint as a tofu box rather than falling back to a font
 	-- that has it.
 	balanceLabel.Text = ("%d lumen   ·   %d harvested"):format(summary.lumen, summary.harvested)
+	refreshPicker()
 
 	shownSkin = summary.skin
 	table.clear(ownedSkins)
@@ -287,13 +337,27 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer
 	if typeof(tileIndex) ~= "number" then
 		return
 	end
+	-- Every plot's prompts show for everyone, but the server applies an
+	-- intent to the sender's own plot. Pressing a tile on a neighbour's
+	-- plot would otherwise plant on your own tile of the same number.
+	local plot = prompt:FindFirstAncestorWhichIsA("Model")
+	if not plot or plot:GetAttribute("OwnerUserId") ~= player.UserId then
+		say("That's someone else's grove.", false)
+		return
+	end
 
-	-- The client only distinguishes "empty" from "occupied". For an occupied
-	-- tile it sends Tap and lets the server decide harvest versus tend: its
-	-- own view of ripeness is the last state push, up to a second stale.
+	-- The client only distinguishes locked, empty and occupied. For an
+	-- occupied tile it sends Tap and lets the server decide harvest versus
+	-- tend: its own view of ripeness is the last state push, up to a second
+	-- stale.
+	local tileCount = latest and latest.tileCount or Config.STARTING_TILES
 	local occupied = latest and latest.tiles[tostring(tileIndex)]
 	local ok, outcome
-	if occupied then
+	if tileIndex > tileCount then
+		ok, outcome = pcall(function()
+			return expandRemote:InvokeServer()
+		end)
+	elseif occupied then
 		ok, outcome = pcall(function()
 			return tapRemote:InvokeServer(tileIndex)
 		end)

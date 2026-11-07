@@ -14,6 +14,21 @@ export type Species = {
 	growSeconds: number,
 	value: number,
 	colour: Color3,
+	-- Lifetime harvests needed before this species can be planted.
+	unlockHarvests: number,
+}
+
+export type Mutation = {
+	id: string,
+	name: string,
+	-- Probability per planting, rolled independently in table order; the
+	-- first hit wins, so rarer entries go first.
+	chance: number,
+	multiplier: number,
+	-- nil means the colour cycles through the spectrum.
+	colour: Color3?,
+	-- Tell the whole server, not just the harvester.
+	announce: boolean,
 }
 
 export type Skin = {
@@ -32,10 +47,65 @@ export type Skin = {
 
 local Config = {}
 
-Config.TILE_COUNT = 9
-Config.TILES_PER_ROW = 3
+--[[
+	The plot is a GRID x GRID square of tiles. A new grove has the centre
+	STARTING_TILES of it; the rest are bought one at a time with lumen, in
+	index order.
+
+	Tile indices 1-9 are the centre 3x3, in the same row-major order the
+	original 3x3 plot used, so a save written before the plot could grow
+	puts every plant exactly where it was. 10-25 are the outer ring.
+]]
+Config.GRID = 5
+Config.TILE_COUNT = Config.GRID * Config.GRID
+Config.STARTING_TILES = 9
 Config.TILE_STUDS = 8
 Config.STARTING_LUMEN = 25
+
+local layout: { Vector2 } = {}
+for row = -1, 1 do
+	for column = -1, 1 do
+		table.insert(layout, Vector2.new(column, row))
+	end
+end
+local half = (Config.GRID - 1) / 2
+for row = -half, half do
+	for column = -half, half do
+		if math.max(math.abs(row), math.abs(column)) > 1 then
+			table.insert(layout, Vector2.new(column, row))
+		end
+	end
+end
+-- Column and row of each tile index, counted from the plot's centre.
+Config.TILE_LAYOUT = layout
+
+-- The n-th tile (n > STARTING_TILES) costs this much to unlock. Rises
+-- ~32% a tile: the 10th is a few Voidlily harvests, the 25th is a goal.
+function Config.tileUnlockCost(n: number): number
+	return math.floor(150 * 1.32 ^ (n - Config.STARTING_TILES - 1) / 10 + 0.5) * 10
+end
+
+--[[
+	Plots stand in rings around the hub at the world origin, each facing it.
+	Eight to a ring; a server bigger than that starts a second, wider ring,
+	offset half a step so its plots sit in the first ring's gaps. At radius
+	90 the inner corners of neighbouring 46-stud plots stay ~9 studs apart.
+]]
+Config.PLOTS_PER_RING = 8
+Config.PLOT_RING_RADIUS = 90
+Config.PLOT_RING_GAP = 75
+-- Where the grove's terrain surface actually is (see tools/world.luau).
+Config.GROUND_Y = 2
+
+function Config.plotCFrame(slot: number): CFrame
+	local ring = (slot - 1) // Config.PLOTS_PER_RING
+	local step = (slot - 1) % Config.PLOTS_PER_RING
+	local angle = (step + (ring % 2) * 0.5) / Config.PLOTS_PER_RING * 2 * math.pi
+	local radius = Config.PLOT_RING_RADIUS + ring * Config.PLOT_RING_GAP
+	local height = Config.GROUND_Y + 0.5 -- a 1-stud base resting on the ground
+	local position = Vector3.new(math.sin(angle) * radius, height, math.cos(angle) * radius)
+	return CFrame.lookAt(position, Vector3.new(0, height, 0))
+end
 
 --[[
 	Tending: the active layer. Being present lets you speed a plant up; being
@@ -71,6 +141,7 @@ Config.SPECIES = {
 		growSeconds = 30,
 		value = 18,
 		colour = Color3.fromRGB(126, 224, 168),
+		unlockHarvests = 0,
 	},
 	{
 		id = "emberbloom",
@@ -79,6 +150,7 @@ Config.SPECIES = {
 		growSeconds = 120,
 		value = 95,
 		colour = Color3.fromRGB(255, 148, 86),
+		unlockHarvests = 0,
 	},
 	{
 		id = "voidlily",
@@ -87,8 +159,71 @@ Config.SPECIES = {
 		growSeconds = 600,
 		value = 520,
 		colour = Color3.fromRGB(168, 130, 255),
+		unlockHarvests = 0,
+	},
+	-- The long growers are what make tomorrow worth opening the game for:
+	-- plant before leaving, harvest on return. Gated by harvests so the
+	-- first session is about learning the loop, not reading a price list.
+	{
+		id = "moonpetal",
+		name = "Moonpetal",
+		cost = 900,
+		growSeconds = 1800,
+		value = 2600,
+		colour = Color3.fromRGB(214, 226, 255),
+		unlockHarvests = 30,
+	},
+	{
+		id = "starcap",
+		name = "Starcap",
+		cost = 4000,
+		growSeconds = 7200,
+		value = 12500,
+		colour = Color3.fromRGB(255, 112, 196),
+		unlockHarvests = 100,
 	},
 } :: { Species }
+
+--[[
+	Mutations: a planting sometimes comes up rare, worth several times its
+	species' value. Rolled by the server when the seed goes in and stored on
+	the tile, but shown to nobody -- not the plot, not the state push --
+	until the plant is ripe. The surprise lands at harvest time, and the
+	client cannot peek because it is never told.
+
+	Tending does not touch the roll, and a save without the field is simply
+	unmutated.
+]]
+Config.MUTATIONS = {
+	{
+		id = "prismatic",
+		name = "Prismatic",
+		chance = 1 / 150,
+		multiplier = 12,
+		colour = nil,
+		announce = true,
+	},
+	{
+		id = "golden",
+		name = "Golden",
+		chance = 1 / 20,
+		multiplier = 3,
+		colour = Color3.fromRGB(255, 206, 84),
+		announce = false,
+	},
+} :: { Mutation }
+
+function Config.mutationById(id: string?): Mutation?
+	if id == nil then
+		return nil
+	end
+	for _, mutation in Config.MUTATIONS do
+		if mutation.id == id then
+			return mutation
+		end
+	end
+	return nil
+end
 
 function Config.speciesById(id: string): Species?
 	for _, species in Config.SPECIES do

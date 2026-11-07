@@ -27,7 +27,7 @@ local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
 
 local Profiles = {}
 
-local SCHEMA_VERSION = 2
+local SCHEMA_VERSION = 3
 local STORE_NAME = "LumenGrove_Profiles_v1"
 local LOAD_ATTEMPTS = 4
 local RETRY_BACKOFF_SECONDS = 2
@@ -50,6 +50,8 @@ local function blankProfile()
 		lumen = Config.STARTING_LUMEN,
 		tiles = {}, -- [tileIndex: string] = { species, plantedAt }
 		harvested = 0,
+		-- Tiles 1..tileCount are unlocked; see Config.TILE_LAYOUT.
+		tileCount = Config.STARTING_TILES,
 		-- The equipped skin id: a preference, not a purchase. Ownership is
 		-- never saved here -- Roblox records game pass ownership itself, and
 		-- Skins re-reads it on every join.
@@ -68,6 +70,10 @@ local function migrate(profile: any): any
 	-- v2: plot skins.
 	if profile.skin == nil then
 		profile.skin = Config.DEFAULT_SKIN
+	end
+	-- v3: buyable tiles. Every earlier save had the original nine.
+	if profile.tileCount == nil then
+		profile.tileCount = Config.STARTING_TILES
 	end
 	profile.version = SCHEMA_VERSION
 	return profile

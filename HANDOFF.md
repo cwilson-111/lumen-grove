@@ -3,113 +3,110 @@
 > Current state, not a log. Overwrite rather than append. Read by the next
 > session — or the hourly resume job — to continue without re-deriving anything.
 
-**Written:** 2026-11-07 (after plot skins)
+**Written:** 2026-11-07 (after grove world, mutations, progression)
 **Repo:** `cwilson-111/lumen-grove`, branch `main`
 **Place:** published, placeId `119675424382289`, universeId `10774896318`,
-visibility **PRIVATE**
+visibility **PRIVATE**, server size **8** (set via Open Cloud this session)
 **Studio id (this machine, this run):** `5fff069f-e222-43e2-b2bf-7cacc8f9b603`
 — re-read with `list_roblox_studios`; it changes when Studio restarts.
 
 ## Goal
 
 An idle-grow Roblox game built to the signals Roblox's Home recommendations
-actually rank on (`create.roblox.com/docs/discovery`): play through rate,
-first play bounce rate, **play days per user** and **playtime per user** in
-the top tier; intentional co-play and the two Robux-spend signals one below.
-Since August 2026, sustainable monetization weighs alongside retention.
-
-Retention has a loop (offline growth) and an active layer (tending).
-Monetization now has its first, cosmetic-only purchase.
+rank on (`create.roblox.com/docs/discovery`): play through rate, first play
+bounce rate, **play days per user** and **playtime per user** top tier;
+co-play and the two Robux-spend signals one below. The user asked for more
+gameplay before more monetization.
 
 ## Done
 
-Every item verified by driving the live place over Studio MCP, not by reading code.
+Every item verified by driving the live place over Studio MCP.
 
-- [x] Plant → grow → harvest, input validation, real DataStore persistence,
-      offline growth, tending with cap and cooldown. See README.
-- [x] **Native Studio MCP tools work** in omp; `tools/studio.py` deleted.
-- [x] **`tools/deploy.py` ported.** It now only prints the Luau chunk; the
-      agent sends it with `execute_luau` (Edit datamodel). Verified: all 7
-      scripts written, including the new `server.Skins`.
-- [x] **Three skin game passes exist**, for sale: Crystal Hollow `2075151059`
-      (R$49), Ember Hearth `2074455097` (R$99), Starfall `2074929162`
-      (R$149). `GetProductInfo` from the client returns those names and
-      prices, `IsForSale=true`.
-- [x] **Equip path.** Through the real `Skin` remote: `ember`/`slate`/
-      `starfall` equipped; `"nope"` and `5` refused with *"No such skin."*.
-      Plot repainted (Starfall: Granite base, Pavement tiles, 4 neon rim
-      strips). UI rows read `On` / `Equip`; screenshots confirmed.
-- [x] **Equipped skin persists.** Equipped Starfall, stopped play, started
-      again: plot came back Starfall. The pre-existing v1 profile migrated to
-      v2 (`skin` field added) without loss.
-- [x] Skin panel moved to the top-right; stacked under the spore picker it ran
-      off the bottom of the viewport.
-- [x] SpawnLocation moved to `(0, 0.5, -40)`. It overlapped Plot1's base at the
-      same height and its decal z-fought through the tile gaps.
+- [x] Loop, validation, persistence, offline growth, tending, plot skins
+      (3 game passes; equip and persisted choice verified; *purchase* by a
+      non-owner still untested). See README.
+- [x] **Grove world** (`tools/world.luau`, run into Edit): night lighting,
+      terrain with hub, paths and hill ring, elder mushroom, ~90 glowshroom
+      clusters, treeline, rocks, spore particles; 845 parts. Plots stand in a
+      ring of 8 around the hub (`Config.plotCFrame`), each with a lamp and an
+      owner sign. Screenshots confirmed readable at night on Slate.
+- [x] **Plants glow** brighter as they ripen (PointLight per plant).
+- [x] **Mutations.** With odds forced in a throwaway deploy: all five
+      plantings rolled; the state push carried no `mutation` field and the
+      prompts read plain `Glowcap` while growing; at ripeness they read
+      `Golden Glowcap` / `Prismatic Glowcap` with sparkles; harvests paid
+      exactly 54 (×3) and 216 (×12); each Prismatic fired the server-wide
+      banner. Real odds (1/20, 1/150) redeployed and confirmed in the source.
+- [x] **Species unlocks.** Moonpetal refused at 9 harvests (`Moonpetal unlocks
+      at 30 harvests.`); with the threshold forced to 5 the picker row unlocked
+      live on the next state push; real threshold redeployed (row reads
+      `at 30 harvests`).
+- [x] **Plot expansion.** Expand 150 → tile 10; planting on 11 refused until
+      bought; tile 11 prompt read `Unlock / 200 lumen`, tile 12 disabled.
+      Through *real prompt presses* on tile 11: unlock → plant → tend.
+- [x] **Persistence of the new fields.** After stop/start: `tileCount=10`,
+      tile 10's Glowcap present and ripe (grew while the server was down).
+      v2 → v3 profile migration ran on the existing save.
 
 ## In progress / not yet verified
 
-- **The purchase path has not been exercised.** The creator owns every pass
-  they create (`UserOwnsGamePassAsync` → true for all three), so on the
-  owner's account every skin is already `Equip`. A non-owner must click a
-  locked skin, buy it in Studio's test prompt, and see: toast
-  *"<Skin> unlocked."*, the plot repaint, the row flip to `On`. Code path:
-  client `PromptGamePassPurchase` → server
-  `PromptGamePassPurchaseFinished` in `Skins.init`.
-- **The SpawnLocation move is in the Edit datamodel only.** The place file is
-  not in the repo; the user must **File → Publish to Roblox** (or save) for it
-  to stick.
+- **The world and SpawnLocation exist only in the open Studio session.** The
+  user must **File → Publish to Roblox**. If lost, re-run a deploy and then
+  `tools/world.luau` (both via `execute_luau`, Edit datamodel).
+- **Foreign-plot guard untested** (needs two players): the client refuses a
+  prompt on another player's plot with "That's someone else's grove."
+- **Skin purchase by a non-owner untested** (creator owns their passes).
 
-**Next action:** test a purchase from a non-owner account (Studio *Test →
-Clients and Servers* gives `Player1`/`Player2`, who own nothing), then the
-second monetization item: **a second plot slot** (a game pass; same pattern
-as skins). Then time-skips, only if they never gate content.
+**Next action:** ask the user what to build next. Candidates, in the order
+recommended last time: daily reward with no streak loss (play days),
+adjacency bonuses (second active mechanic), help-a-friend co-op, custom
+thumbnail (required for Home), then time-skips.
 
 ## Usage budget
 
 `~/.omp/agent/usage-budget.json` is still the installer placeholder
-($60 / 5h). Ask the user for their real plan limits rather than guessing.
+($60 / 5h). Ask the user for their real plan limits.
 
 ## Deliberately not done
 
-- **Skins are game passes, not developer products.** Permanent, owned once;
-  Roblox records ownership, so no idempotent `ProcessReceipt` is needed and a
-  lost save cannot lose a purchase. Developer products (and
-  `ProcessReceipt`) are for the later consumable time-skips.
-- **Ownership is never saved in the profile.** Re-read on join; a failed
-  check shows the default for that session and never unequips.
-- **Co-op is rewarded, never required.**
+- **Mutation is rolled at planting, hidden until ripe** — not rolled at
+  harvest — so a ripe rare plant is visible to the server and other
+  players, and the summary can never leak it early.
+- **Only the next tile is for sale**; `Expand()` takes no argument.
+- **No decay, anywhere.** **Co-op rewarded, never required.**
 - **Not a Steal-genre clone.**
-- **No decay, anywhere.**
-- **Plot layout / adjacency bonuses deferred** behind monetization.
+- **Skins are game passes; ownership never saved in the profile.**
 
 ## Files touched this session
 
-- `src/shared/Config.luau` — `Skin` type, `SKINS`, `skinById`, `skinByGamePass`
-- `src/server/Skins.luau` — new: ownership, `shown`, `equip`, purchase handler
-- `src/server/PlotService.luau` — `paint`, `paintSkin`; release repaints default
-- `src/server/Profiles.luau` — schema v2: `skin`
-- `src/server/Main.server.luau` — `Skin` remote; `skin`/`ownedSkins` in state
-- `src/client/Main.client.luau` — skin panel, prices, purchase prompt, toast
-- `tools/deploy.py` — prints Luau instead of calling Studio; `studio.py` gone
-- `assets/passes/*.png` — pass icons
+- `src/shared/Config.luau` — grid/layout, `tileUnlockCost`, ring and
+  `plotCFrame`, `GROUND_Y`, species `unlockHarvests` + Moonpetal/Starcap,
+  `MUTATIONS`
+- `src/shared/Growth.luau` — `mutation` on the tile; payout multiplier
+- `src/shared/Format.luau` — new: `duration`
+- `src/server/PlotService.luau` — rewritten: ring placement, lamp, owner
+  sign, locked/next tiles, glow, mutation visuals, `expand`, reset on release
+- `src/server/Profiles.luau` — schema v3: `tileCount`
+- `src/server/Main.server.luau` — `Expand` and `Announce` remotes,
+  `tileCount` in state
+- `src/client/Main.client.luau` — locked species, expand routing,
+  foreign-plot guard, banner
+- `tools/world.luau` — new: the grove builder
 
 ## Gotchas discovered
 
-- **Open Cloud via `open_cloud_invoke` could not create passes.**
-  `game-pass:write` stayed "not granted" and `assets/passes/` stayed "not
-  approved for uploads" even after the user saved and toggled the MCP
-  permissions; `game-pass:read` worked. What worked: a headed managed
-  Chromium logged in by the user on create.roblox.com, then a `fetch` from
-  that page to `apis.roblox.com/game-passes/v1/universes/{id}/game-passes`
-  (multipart: `name`, `description`, `price`, `isForSale`, `imageFile`),
-  with the usual `x-csrf-token` retry on 403.
-- **The creator owns their own passes.** Purchase cannot be tested on that
-  account.
-- **`execute_luau` keeps its own module cache, across calls.** Test stateful
-  services through the remotes from the `Client` datamodel.
-- **Every bridge tool needs `studio_id`**; `execute_luau` also needs
-  `datamodel_type`. Edit is unavailable during play — stop first.
-- **The bridge only attaches to a *published* place.**
+- **Smooth terrain surfaces at y = 2 for voxels solid to y = 0.** Plots sit
+  at `Config.GROUND_Y`. Measure with a terrain-only raycast.
+- **`screen_capture` with camera params works during play**, and captures
+  the game view including UI; Roblox's purchase dialog does not appear in it.
+- **Forced-odds testing:** string-replace in the emitted deploy Luau only;
+  redeploy unmodified after. Never commit forced odds.
+- **`ProximityPrompt:InputHoldBegin/End`** from the Client datamodel presses
+  a real prompt.
+- **Open Cloud via `open_cloud_invoke`**: `universe.place:write` works
+  (server size); `game-pass:write` and uploads did not. Passes were created
+  from a user-logged-in managed Chromium with a page `fetch`.
+- **`execute_luau` keeps its own module cache**; require a clone of
+  `ReplicatedStorage.Shared` for fresh pure modules (world.luau does).
+- **Every bridge tool needs `studio_id`**; Edit is unavailable during play.
 - **Gotham has no ✦**; use `R$`, not a Robux glyph.
-- **Game Settings is greyed out during a playtest.**

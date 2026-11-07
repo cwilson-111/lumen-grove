@@ -84,6 +84,50 @@ fields load unchanged — no migration.
 grove when a load fails, because a blank profile saved over a real one is how
 a transient outage becomes permanent data loss.
 
+### Mutations: the reason to keep harvesting
+
+A planting sometimes comes up rare. The server rolls it when the seed goes in
+and stores it on the tile (`mutation`), but tells nobody — the plot, the
+prompt and the state push all hide it — until the plant is ripe. The surprise
+lands at harvest, and the client cannot peek because it is never sent.
+
+| Mutation | Chance per planting | Pays | Shown as |
+|---|---|---|---|
+| Golden | 1 in 20 | ×3 | gold, sparkling |
+| Prismatic | 1 in 150 | ×12 | cycling rainbow, sparkling; announced to the whole server |
+
+Tending never touches the roll; a tile saved before mutations existed is
+simply unmutated.
+
+### Progression: something to come back for
+
+- **Species unlock by lifetime harvests.** The first three are open from the
+  start; the long growers are what make tomorrow worth opening the game for
+  (plant before leaving, harvest on return):
+
+  | Species | Unlocks at | Cost | Grow | Pays |
+  |---|---|---|---|---|
+  | Moonpetal | 30 harvests | 900 | 30m | 2,600 |
+  | Starcap | 100 harvests | 4,000 | 2h | 12,500 |
+
+- **The plot grows from 3×3 to 5×5**, one tile at a time, bought with lumen
+  (`Expand()`, no argument: only the next tile is ever for sale). The 10th
+  tile costs 150, each next one ~32% more, the 25th ~9,600. Tiles 1–9 are the
+  centre, in the original order, so old saves keep every plant in place.
+
+### The grove
+
+The world is a night forest: plots stand in a ring of eight around a hub
+with an elder mushroom, joined to it by paths, under glowing fungi, a
+treeline and drifting spores. Every plot has a lamp and its owner's name;
+plants glow brighter as they ripen, so a ripe plot is visible across the
+grove. Servers hold **8 players** (set through Open Cloud) — one ring; a
+bigger server would start a second ring further out.
+
+`tools/world.luau` builds all of it into the Edit datamodel (see *Working on
+it*). It is seeded and idempotent, and reads plot positions from
+`Config.plotCFrame`, the same function the server uses.
+
 ### Plot skins: the first thing for sale
 
 Since August 2026, *spend days per user* and *Robux spent per user* rank
@@ -117,13 +161,16 @@ number reads it.
 ## Layout
 
 ```
-src/shared/Config.luau     tunables; species, costs, grow times, skins
+src/shared/Config.luau     tunables; species, mutations, grid, ring, skins
 src/shared/Growth.luau     the pure growth/payout math
+src/shared/Format.luau     durations for prompts and the picker
 src/server/Profiles.luau   DataStore persistence, versioned, retrying
 src/server/PlotService.luau  authoritative plot state and world rendering
 src/server/Skins.luau      skin ownership (game passes) and equipping
 src/server/Main.server.luau  remotes, join/leave, autosave, cosmetic tick
 src/client/Main.client.luau  balance, spore picker, skin picker, prompts
+tools/deploy.py            builds the Luau that writes src/ into Studio
+tools/world.luau           builds the grove (terrain, lighting, decor)
 ```
 
 ## Working on it
@@ -145,6 +192,10 @@ python3 tools/deploy.py --dry                # show what would be written
 `deploy.py` does not talk to Studio. It prints one Luau chunk; send it with
 `execute_luau` against the **Edit** datamodel. Stop the playtest first, or
 the bridge reports `Edit datamodel is not available in Play mode`.
+
+`tools/world.luau` is sent the same way, as-is, **after** a deploy (it reads
+the deployed `Config`). Both write into the open place only: **File →
+Publish to Roblox** to keep them.
 
 ### Testing notes, learned the hard way
 
@@ -169,16 +220,27 @@ the bridge reports `Edit datamodel is not available in Play mode`.
   account, `UserOwnsGamePassAsync` is true for all three skins, so the
   purchase path cannot be exercised there — only equipping. Test buying with
   an account that is not the owner.
-- The `SpawnLocation` sat at the same height as Plot1's base, overlapping it,
-  and its decal z-fought through the gaps between tiles. It now sits at
-  `(0, 0.5, -40)`, clear of the plot row; keep anything else off that row.
+- **Smooth terrain surfaces half a voxel above its fill.** Voxels solid up
+  to y = 0 draw and collide at **y = 2**, which buried the plots' tiles until
+  they were raised to `Config.GROUND_Y`. Measure with a terrain-only raycast
+  rather than trusting the fill height; filling lower does not help, since
+  `FillCylinder` rounds to whole voxels.
+- **Testing rare rolls:** deploy with the odds forced in the emitted Luau
+  only (e.g. replace `chance = 1 / 20` with `chance = 1`), play the real path,
+  then redeploy unmodified. Never commit forced odds.
+- `ProximityPrompt:InputHoldBegin()`/`InputHoldEnd()` from the `Client`
+  datamodel presses a real prompt, which tests the client's routing too, not
+  just the remote behind it. Stand within `MaxActivationDistance` first.
 
 ## Not built yet
 
-- A second active mechanic: plot layout, with adjacency bonuses between
-  species, so arranging the grid is worth time.
-- Monetization, continued: a second plot slot, then time-skips that never
-  gate content. Tending stays the free version of a time-skip.
-- Co-op: helping on a friend's plot, rewarded and never required.
+- Adjacency bonuses between species, so arranging the grid is worth time.
+- A daily reward with no streak to lose (*play days per user*).
+- Co-op: helping on a friend's plot, rewarded and never required. Today the
+  client refuses prompts on someone else's plot ("That's someone else's
+  grove."); everyone still *sees* their neighbours' prompts.
+- Monetization, continued: time-skips that never gate content. Tending stays
+  the free version of a time-skip. (A second plot slot is less obvious now
+  that one plot grows to 5×5.)
 - A custom thumbnail. **Required** for any Home impressions — a place with the
   default thumbnail is ineligible.
