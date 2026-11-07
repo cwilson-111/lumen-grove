@@ -258,23 +258,43 @@ Publish to Roblox** to keep them.
 
 ### Icon and thumbnails
 
-`assets/marketing/` holds the uploaded icon (512×512) and thumbnail
-(1920×1080, 16:9). Both are real in-game captures: plants staged on a plot
-during a playtest, UI hidden, `screen_capture` with a camera position (it
-returns the JPEG as base64 in `rawContent`), then cropped and titled with
-Pillow. Nothing staged is saved: it lives in the playtest only.
+`assets/marketing/` holds what is live: the icon (512×512) and two
+thumbnails (1920×1080, 16:9) —
+
+| File | Shows | Where |
+|---|---|---|
+| `thumbnail-a-…png` | a full 5×5 plot of ripe mushrooms beside the elder mushroom; "Plant glowing spores. They grow while you're away." | game page (first), Home |
+| `thumbnail-b-…png` | the player among mushrooms, mutation sparkles; "Find rare Golden and Prismatic mushrooms." | game page (second), Home |
+| `icon-512.png` | the planted plot with the elder mushroom behind | icon |
+
+Both Home thumbnails are in one active personalization config, so Roblox
+tests them against each other per player.
+
+All are real in-game captures. During a playtest, a fresh clone of
+`ServerScriptService.PlantModels` (pure presentation, so the clone draws
+exactly what the game does) builds ripe plants into a `Workspace.ThumbStage`
+folder; the client hides the UI, prompts and the live plants
+(`LocalTransparencyModifier`, which the server never writes); then
+`screen_capture` with a camera position returns the JPEG as base64 in
+`rawContent`, cropped and titled with Pillow. Nothing staged is saved.
 
 Uploaded from a logged-in Creator Dashboard browser session with `fetch`:
 
 | What | Endpoint (cookie + `x-csrf-token` retry) |
 |---|---|
 | Icon | `POST publish.roblox.com/v1/games/{universeId}/icon`, form field `Files` |
-| Detail-page thumbnail | `POST publish.roblox.com/v1/games/{universeId}/thumbnail/image`, `Files` |
-| Home thumbnail | `POST apis.roblox.com/thumbnail-personalization-api/v1/universes/{id}/thumbnails/uploads` (`files`), poll `…/uploads/status`, then `…/personalization/create` with the `homepageThumbnailId` |
+| Detail-page thumbnail | `POST publish.roblox.com/v1/games/{universeId}/thumbnail/image`, `Files`; returns the **thumbnail id** as `targetId` |
+| Remove one | `DELETE develop.roblox.com/v1/universes/{universeId}/thumbnails/{thumbnailId}` |
+| Order them | `POST develop.roblox.com/v1/universes/{universeId}/thumbnails/order`, `{"thumbnailIds": [...]}` |
+| Home thumbnails | `POST apis.roblox.com/thumbnail-personalization-api/v1/universes/{id}/thumbnails/uploads` (`files`), poll `…/uploads/status`, then `…/personalization/create` with the `homepageThumbnailId`s |
 
-The Open Cloud Assets API (`assets/v1/assets`) rejects cookie auth, and the
-MCP `open_cloud_invoke` tool cannot upload files from a directory Studio has
-not approved.
+- Delete and order take the **thumbnail id** from the upload's `targetId`,
+  not the `imageId` that `games.roblox.com/v2/games/{id}/media` lists. With
+  an image id, delete answers `200 {}` and does nothing; order answers
+  `400 … not valid`.
+- The Open Cloud Assets API (`assets/v1/assets`) rejects cookie auth, and
+  the MCP `open_cloud_invoke` tool cannot upload files from a directory
+  Studio has not approved.
 
 ### Testing notes, learned the hard way
 
@@ -319,5 +339,3 @@ not approved.
 - Monetization, continued: time-skips that never gate content. Tending stays
   the free version of a time-skip. (A second plot slot is less obvious now
   that one plot grows to 5×5.)
-- More Home thumbnails: personalization only starts with **two or more**
-  active, and one is active today.

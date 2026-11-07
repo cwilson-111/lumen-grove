@@ -3,7 +3,7 @@
 > Current state, not a log. Overwrite rather than append. Read by the next
 > session — or the hourly resume job — to continue without re-deriving anything.
 
-**Written:** 2026-11-07 (after rename and mushroom plant models)
+**Written:** 2026-11-07 (after mushroom store media and Home thumbnail A/B)
 **Repo:** `cwilson-111/lumen-grove`, branch `main`
 **Place:** published, placeId `119675424382289`, universeId `10774896318`,
 visibility **PRIVATE**, server size **8**, named **Lumen Grove** with a
@@ -36,10 +36,14 @@ Verified by driving the live place over Studio MCP unless marked otherwise.
       owner prompts, 0 help prompts). **Two-player flow verified by the user
       by hand** in Studio's Clients and Servers test: help prompt only for the
       visitor, both toasts, hidden during cooldown and when ripe.
-- [x] **Icon + thumbnails** (`assets/marketing/`): icon uploaded, **InReview**;
-      detail-page thumbnail live on the CDN (`state: Completed`); Home page
-      thumbnail **Approved, Active** (homepageThumbnailId
-      `797547bc-4685-4f55-b850-ae09b8271fad`).
+- [x] **Icon + thumbnails, mushroom versions** (`assets/marketing/`), all
+      **Approved** and served by the CDN (contact sheet checked):
+      icon replaced; game page shows thumbnail A then B (old sphere one
+      deleted); Home personalization config
+      `e3c52f49-0981-439d-9aad-87552d45bef7` is **Active** with A
+      (`5c18d8a4-99ce-4ff4-ad0a-3e79c6ccd61a`) and B
+      (`397d86dd-8a20-407b-aef4-e1cf242bc142`); the old sphere Home
+      thumbnail is no longer in it.
 - [x] **Renamed** "first" → **Lumen Grove**, description set; the universe
       reads back `displayName: "Lumen Grove"`.
 - [x] **Mushroom plants** (`src/server/PlantModels.luau`): per-species
@@ -55,8 +59,6 @@ Verified by driving the live place over Studio MCP unless marked otherwise.
 - **Publish the place** (File → Publish to Roblox). Every script change
   exists only in the open Studio session until then. If Studio's Game
   Settings still shows the old name "first", do not save over it there.
-- **Thumbnail and icon show the old sphere plants.** Recapture when wanted
-  (README: *Icon and thumbnails*).
 - **Developer save inflated by testing.** The fast test build paid real
   Starcap harvests into the dev account's DataStore profile (+19,375 in one
   harvest; lumen and harvest count are well above normal play).
@@ -64,9 +66,10 @@ Verified by driving the live place over Studio MCP unless marked otherwise.
 - Usage budget: `~/.omp/agent/usage-budget.json` is still the $60/5h
   placeholder.
 
-**Next action:** ask the user. Candidates: recapture thumbnail/icon with the
-mushrooms, a second Home thumbnail (personalization needs ≥ 2), time-skips,
-making the place public.
+**Next action:** ask the user. Candidates: time-skips, making the place
+public, resetting the inflated developer save. In a few days, compare the
+two Home thumbnails' qualified play-through rate (Creator Dashboard →
+Thumbnails → Home Page).
 
 ## Deliberately not done
 
