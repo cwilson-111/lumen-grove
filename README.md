@@ -166,6 +166,21 @@ plants glow brighter as they ripen, so a ripe plot is visible across the
 grove. Servers hold **8 players** (set through Open Cloud) — one ring; a
 bigger server would start a second ring further out.
 
+Plants are mushrooms, shaped per species so a plot reads at a glance, and
+grow from 30% to full size as they ripen (`src/server/PlantModels.luau`):
+
+| Species | Shape |
+|---|---|
+| Glowcap | round dome on a short stem |
+| Emberbloom | tall egg-shaped bulb, with a small sprout beside it |
+| Voidlily | wide, flat parasol |
+| Moonpetal | cluster of three |
+| Starcap | broad cap ringed with glowing spots |
+
+Caps are Neon in a saturated version of the species colour: under the
+grove's bloom the pastel UI colours bleached to near-white and every species
+looked alike.
+
 `tools/world.luau` builds all of it into the Edit datamodel (see *Working on
 it*). It is seeded and idempotent, and reads plot positions from
 `Config.plotCFrame`, the same function the server uses.
@@ -209,6 +224,7 @@ src/shared/Format.luau     durations for prompts and the picker
 src/server/Profiles.luau   DataStore persistence, versioned, retrying
 src/server/Daily.luau      the daily dew
 src/server/PlotService.luau  authoritative plot state and world rendering
+src/server/PlantModels.luau  what a plant looks like, per species and growth
 src/server/Skins.luau      skin ownership (game passes) and equipping
 src/server/Main.server.luau  remotes, join/leave, autosave, cosmetic tick
 src/client/Main.client.luau  balance, spore picker, skin picker, prompts
@@ -300,9 +316,6 @@ not approved.
 
 ## Not built yet
 
-- Plants are plain glowing spheres; species-specific shapes (stem and cap,
-  like the grove's decorative mushrooms) would read better on the plot and in
-  thumbnails.
 - Monetization, continued: time-skips that never gate content. Tending stays
   the free version of a time-skip. (A second plot slot is less obvious now
   that one plot grows to 5×5.)

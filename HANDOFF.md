@@ -3,10 +3,11 @@
 > Current state, not a log. Overwrite rather than append. Read by the next
 > session — or the hourly resume job — to continue without re-deriving anything.
 
-**Written:** 2026-11-07 (after daily dew, neighbour bonuses, helping, store media)
+**Written:** 2026-11-07 (after rename and mushroom plant models)
 **Repo:** `cwilson-111/lumen-grove`, branch `main`
 **Place:** published, placeId `119675424382289`, universeId `10774896318`,
-visibility **PRIVATE**, server size **8**, display name still **"first"**
+visibility **PRIVATE**, server size **8**, named **Lumen Grove** with a
+description (set via Open Cloud `universe.place:write`)
 **Studio id (this machine, this run):** `5fff069f-e222-43e2-b2bf-7cacc8f9b603`
 — re-read with `list_roblox_studios`; it changes when Studio restarts.
 
@@ -39,20 +40,33 @@ Verified by driving the live place over Studio MCP unless marked otherwise.
       detail-page thumbnail live on the CDN (`state: Completed`); Home page
       thumbnail **Approved, Active** (homepageThumbnailId
       `797547bc-4685-4f55-b850-ae09b8271fad`).
+- [x] **Renamed** "first" → **Lumen Grove**, description set; the universe
+      reads back `displayName: "Lumen Grove"`.
+- [x] **Mushroom plants** (`src/server/PlantModels.luau`): per-species
+      stem-and-cap shapes, grown from 30% to full size. Screenshots of all
+      five ripe and mid-growth (test build with 20 s grow times, Studio
+      only); replanting a tile with another species swaps the model (one
+      Plant per tile; Starcap 8 parts, Moonpetal 6, Voidlily 2). Caps use a
+      saturated version of the species colour — Neon bleached the pastels.
+      Real values redeployed and confirmed in the place's Config.
 
 ## Not yet done / needs the user
 
-- **Publish the place** (File → Publish to Roblox). Every script change this
-  session exists only in the open Studio session until then.
-- **Rename the experience.** It is still called "first" on Roblox. Not done
-  without asking: the name is the user's call.
+- **Publish the place** (File → Publish to Roblox). Every script change
+  exists only in the open Studio session until then. If Studio's Game
+  Settings still shows the old name "first", do not save over it there.
+- **Thumbnail and icon show the old sphere plants.** Recapture when wanted
+  (README: *Icon and thumbnails*).
+- **Developer save inflated by testing.** The fast test build paid real
+  Starcap harvests into the dev account's DataStore profile (+19,375 in one
+  harvest; lumen and harvest count are well above normal play).
 - Skin purchase by a non-owner: still untested (creator owns their passes).
 - Usage budget: `~/.omp/agent/usage-budget.json` is still the $60/5h
   placeholder.
 
-**Next action:** ask the user. Candidates: rename + description, a second
-Home thumbnail (personalization needs ≥ 2), plant models instead of spheres,
-time-skips, making the place public.
+**Next action:** ask the user. Candidates: recapture thumbnail/icon with the
+mushrooms, a second Home thumbnail (personalization needs ≥ 2), time-skips,
+making the place public.
 
 ## Deliberately not done
 

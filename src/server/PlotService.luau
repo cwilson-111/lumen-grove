@@ -23,6 +23,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Format = require(ReplicatedStorage.Shared.Format)
 local Growth = require(ReplicatedStorage.Shared.Growth)
+local PlantModels = require(script.Parent.PlantModels)
 local Profiles = require(script.Parent.Profiles)
 
 local PlotService = {}
@@ -193,9 +194,9 @@ local function paint(plot: Model, skin: Config.Skin)
 	trim.Parent = plot
 end
 
-local function plantPart(plot: Model, index: number): Part?
+local function plantPart(plot: Model, index: number): Model?
 	local tile = plot:FindFirstChild("Tile" .. index)
-	return tile and tile:FindFirstChild("Plant") :: Part?
+	return tile and tile:FindFirstChild("Plant") :: Model?
 end
 
 local function setSign(plot: Model, text: string)
@@ -306,45 +307,40 @@ local function renderTile(player: Player, index: number)
 	-- until the plant is ripe.
 	local mutation = ripe and Config.mutationById(saved.mutation) or nil
 
+	-- Rebuilt rather than reshaped if the tile now holds a different
+	-- species (harvested and replanted between two renders).
 	local plant = existing
+	if plant and plant:GetAttribute("Species") ~= species.id then
+		plant:Destroy()
+		plant = nil
+	end
 	if not plant then
-		plant = Instance.new("Part")
-		plant.Name = "Plant"
-		plant.Anchored = true
-		plant.Shape = Enum.PartType.Ball
-		plant.Material = Enum.Material.Neon
-		plant.CanCollide = false
-		plant.CastShadow = false
-		local glow = Instance.new("PointLight")
-		glow.Name = "Glow"
-		glow.Shadows = false
-		glow.Parent = plant
-		plant.Parent = tilePart
+		local built = PlantModels.build(species)
+		built.Parent = tilePart
+		plant = built
 	end
 	assert(plant)
 
 	local colour = mutation and mutationColour(mutation, index) or species.colour
-	local size = 1 + progress * (Config.TILE_STUDS - 3)
-	plant.Size = Vector3.new(size, size, size)
-	plant.Position = tilePart.Position + Vector3.new(0, size / 2 + 0.3, 0)
-	plant.Color = colour
-	plant.Transparency = ripe and 0 or 0.45 - progress * 0.35
+	local ground = tilePart.Position + Vector3.new(0, tilePart.Size.Y / 2, 0)
+	PlantModels.pose(plant, species.id, progress, ripe, colour, ground)
 
+	local cap = PlantModels.mainCap(plant)
 	-- Brighter as it ripens, so a ripe plot is visible from across the
 	-- grove: the harvest is the thing worth walking back for.
-	local glow = plant:FindFirstChild("Glow") :: PointLight?
+	local glow = cap and cap:FindFirstChild("Glow") :: PointLight?
 	if glow then
 		glow.Color = colour
 		glow.Range = ripe and 14 or 4 + progress * 6
 		glow.Brightness = ripe and 2.2 or 0.4 + progress * 0.6
 	end
 
-	local sparkles = plant:FindFirstChild("Sparkles") :: Sparkles?
-	if mutation then
+	local sparkles = cap and cap:FindFirstChild("Sparkles") :: Sparkles?
+	if mutation and cap then
 		if not sparkles then
 			local made = Instance.new("Sparkles")
 			made.Name = "Sparkles"
-			made.Parent = plant
+			made.Parent = cap
 			sparkles = made
 		end
 		assert(sparkles)
