@@ -27,7 +27,7 @@ local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
 
 local Profiles = {}
 
-local SCHEMA_VERSION = 3
+local SCHEMA_VERSION = 4
 local STORE_NAME = "LumenGrove_Profiles_v1"
 local LOAD_ATTEMPTS = 4
 local RETRY_BACKOFF_SECONDS = 2
@@ -56,6 +56,14 @@ local function blankProfile()
 		-- never saved here -- Roblox records game pass ownership itself, and
 		-- Skins re-reads it on every join.
 		skin = Config.DEFAULT_SKIN,
+		-- Daily dew. `firstDay` is the UTC day this grove was started: the
+		-- first dew falls the day after. `dewsCollected` only ever grows.
+		firstDay = Config.dayOf(os.time()),
+		lastDewDay = -1,
+		dewsCollected = 0,
+		-- The most valuable species ever harvested, by base value; the dew
+		-- scales with it.
+		bestValue = 0,
 	}
 end
 
@@ -74,6 +82,14 @@ local function migrate(profile: any): any
 	-- v3: buyable tiles. Every earlier save had the original nine.
 	if profile.tileCount == nil then
 		profile.tileCount = Config.STARTING_TILES
+	end
+	-- v4: daily dew. A save from before this is a returning player, so
+	-- their first dew is due now, not tomorrow.
+	if profile.firstDay == nil then
+		profile.firstDay = 0
+		profile.lastDewDay = -1
+		profile.dewsCollected = 0
+		profile.bestValue = 0
 	end
 	profile.version = SCHEMA_VERSION
 	return profile

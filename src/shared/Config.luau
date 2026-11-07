@@ -16,6 +16,15 @@ export type Species = {
 	colour: Color3,
 	-- Lifetime harvests needed before this species can be planted.
 	unlockHarvests: number,
+	-- What this plant does for the tiles beside it; see NEIGHBOUR BONUSES.
+	aura: Aura,
+}
+
+export type Aura = {
+	-- A species id, or nil for every species.
+	target: string?,
+	-- Added to the neighbour's payout multiplier: 0.3 is +30%.
+	bonus: number,
 }
 
 export type Mutation = {
@@ -78,6 +87,21 @@ for row = -half, half do
 end
 -- Column and row of each tile index, counted from the plot's centre.
 Config.TILE_LAYOUT = layout
+
+-- Tile indices directly up, down, left and right of each tile -- never
+-- diagonal -- on the full 5x5 grid, locked tiles included (they hold no
+-- plants, so they simply contribute nothing).
+local neighbours: { { number } } = {}
+for index, cell in layout do
+	local found = {}
+	for other, candidate in layout do
+		if math.abs(candidate.X - cell.X) + math.abs(candidate.Y - cell.Y) == 1 then
+			table.insert(found, other)
+		end
+	end
+	neighbours[index] = found
+end
+Config.NEIGHBOURS = neighbours
 
 -- The n-th tile (n > STARTING_TILES) costs this much to unlock. Rises
 -- ~32% a tile: the 10th is a few Voidlily harvests, the 25th is a goal.
@@ -142,6 +166,7 @@ Config.SPECIES = {
 		value = 18,
 		colour = Color3.fromRGB(126, 224, 168),
 		unlockHarvests = 0,
+		aura = { target = nil, bonus = 0.1 },
 	},
 	{
 		id = "emberbloom",
@@ -151,6 +176,7 @@ Config.SPECIES = {
 		value = 95,
 		colour = Color3.fromRGB(255, 148, 86),
 		unlockHarvests = 0,
+		aura = { target = "voidlily", bonus = 0.3 },
 	},
 	{
 		id = "voidlily",
@@ -160,6 +186,7 @@ Config.SPECIES = {
 		value = 520,
 		colour = Color3.fromRGB(168, 130, 255),
 		unlockHarvests = 0,
+		aura = { target = "moonpetal", bonus = 0.3 },
 	},
 	-- The long growers are what make tomorrow worth opening the game for:
 	-- plant before leaving, harvest on return. Gated by harvests so the
@@ -172,6 +199,7 @@ Config.SPECIES = {
 		value = 2600,
 		colour = Color3.fromRGB(214, 226, 255),
 		unlockHarvests = 30,
+		aura = { target = "starcap", bonus = 0.3 },
 	},
 	{
 		id = "starcap",
@@ -181,8 +209,57 @@ Config.SPECIES = {
 		value = 12500,
 		colour = Color3.fromRGB(255, 112, 196),
 		unlockHarvests = 100,
+		aura = { target = nil, bonus = 0.15 },
 	},
 } :: { Species }
+
+--[[
+	NEIGHBOUR BONUSES: the reason arranging the grid is worth time. Every
+	plant's `aura` raises the payout of the plants directly beside it --
+	Glowcap and Starcap a little for anything, each mid-tier species a lot
+	for the next tier up. A Starcap ringed by four Moonpetals pays +120%.
+
+	Read from the plot as it stands *at harvest*, never stored: nothing about
+	a tile's growth changes, so growth stays a pure function of time, and
+	with four sides there is nothing to stack beyond four neighbours.
+
+	DAILY DEW: a gift on the plot once per UTC day, from a player's second
+	day on -- day one only says when it will come, which is a reason to come
+	back for day two. It scales with the most valuable species the player has
+	ever harvested, so it stays worth collecting as they progress, and with
+	how many dews they have *ever* collected. That count never resets: a
+	missed day costs nothing, so there is no streak to lose.
+
+	HELPING: a visitor may tend a growing plant on someone else's plot,
+	through the same tend (same cap, same cooldown) the owner uses, so
+	helping speeds a friend up without ever making a plant grow faster than
+	attentive play could. The helper is paid a small share of the plant's
+	value, doubled between Roblox friends. Never required: nothing anywhere
+	needs a second player.
+]]
+Config.DEW_MINIMUM = 100
+Config.DEW_GROWTH_PER_DAY = 0.1
+Config.DEW_MAX_DAYS = 20
+Config.HELP_REWARD_FRACTION = 0.03
+Config.HELP_FRIEND_MULTIPLIER = 2
+Config.HELP_REACH = 20
+
+-- Days are UTC, counted from the epoch, so every server agrees on them.
+function Config.dayOf(unixTime: number): number
+	return unixTime // 86400
+end
+
+-- The dew for a player whose best harvest is `bestValue` and who has
+-- collected `dewsCollected` dews before this one.
+function Config.dewAmount(bestValue: number, dewsCollected: number): number
+	local growth = 1 + Config.DEW_GROWTH_PER_DAY * math.min(dewsCollected, Config.DEW_MAX_DAYS)
+	return math.floor(math.max(Config.DEW_MINIMUM, bestValue) * growth + 0.5)
+end
+
+function Config.helpReward(species: Species, friends: boolean): number
+	local reward = math.max(1, math.floor(species.value * Config.HELP_REWARD_FRACTION + 0.5))
+	return friends and reward * Config.HELP_FRIEND_MULTIPLIER or reward
+end
 
 --[[
 	Mutations: a planting sometimes comes up rare, worth several times its

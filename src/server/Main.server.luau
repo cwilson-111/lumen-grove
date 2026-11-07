@@ -3,15 +3,19 @@
 	Server entry point: wires remotes, loads profiles, drives the cosmetic
 	refresh tick, and saves.
 
-	The remote surface is deliberately four intents and two pushes:
+	The remote surface is deliberately six intents and three pushes:
 	  Plant(tileIndex, speciesId)  -- an empty tile
 	  Tap(tileIndex)               -- an occupied tile; the server decides
 	                                  whether that harvests or tends it
 	  Expand()                     -- buy the next tile; no argument, since
 	                                  only the next one is ever for sale
 	  Skin(skinId)                 -- equip a skin the player owns
+	  CollectDew()                 -- the day's dew, if it has fallen
+	  Help(ownerUserId, tileIndex) -- tend a plant on someone else's plot
 	  State -> profile summary     -- server tells the client what is true
 	  Announce -> text             -- server tells everyone about a rare find
+	  Notice -> text               -- server tells one player something
+	                                  happened to them (a friend helped)
 
 	Buying a skin is not a remote: the client opens Roblox's own purchase
 	prompt, and Roblox tells the server what was bought (see Skins).
@@ -24,7 +28,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Growth = require(ReplicatedStorage.Shared.Growth)
+local Daily = require(script.Parent.Daily)
 local PlotService = require(script.Parent.PlotService)
 local Profiles = require(script.Parent.Profiles)
 local Skins = require(script.Parent.Skins)
@@ -64,6 +70,9 @@ local stateRemote: RemoteEvent = ensureRemote("RemoteEvent", "State")
 local skinRemote: RemoteFunction = ensureRemote("RemoteFunction", "Skin")
 local expandRemote: RemoteFunction = ensureRemote("RemoteFunction", "Expand")
 local announceRemote: RemoteEvent = ensureRemote("RemoteEvent", "Announce")
+local dewRemote: RemoteFunction = ensureRemote("RemoteFunction", "CollectDew")
+local helpRemote: RemoteFunction = ensureRemote("RemoteFunction", "Help")
+local noticeRemote: RemoteEvent = ensureRemote("RemoteEvent", "Notice")
 
 -- -- state push ---------------------------------------------------------- --
 
@@ -90,6 +99,7 @@ local function summarise(player: Player)
 			}
 		end
 	end
+	local dew = Daily.status(profile, now)
 	return {
 		lumen = profile.lumen,
 		harvested = profile.harvested,
@@ -97,7 +107,23 @@ local function summarise(player: Player)
 		tiles = tiles,
 		skin = Skins.shown(player).id,
 		ownedSkins = Skins.ownedIds(player),
+		dew = {
+			ready = dew.ready,
+			nextIn = dew.nextIn,
+			amount = dew.amount,
+			-- Day one: no dew yet, only the promise of one tomorrow.
+			firstDay = Config.dayOf(now) == profile.firstDay,
+		},
 	}
+end
+
+-- Everything a player sees of their own grove, redrawn.
+local function refresh(player: Player)
+	PlotService.renderAll(player)
+	local profile = Profiles.get(player)
+	if profile then
+		PlotService.setDew(player, Daily.status(profile, os.time()).ready)
+	end
 end
 
 local function pushState(player: Player)
@@ -123,7 +149,7 @@ local function onPlayerAdded(player: Player)
 
 	-- Offline growth needs no catch-up pass: progress is derived from the
 	-- planting timestamp, so a plant left overnight is simply ripe on sight.
-	PlotService.renderAll(player)
+	refresh(player)
 	pushState(player)
 
 	if not persisted then
@@ -176,6 +202,30 @@ skinRemote.OnServerInvoke = function(player: Player, skinId: any)
 	return outcome
 end
 
+dewRemote.OnServerInvoke = function(player: Player)
+	local outcome = Daily.collect(player)
+	refresh(player)
+	pushState(player)
+	return outcome
+end
+
+helpRemote.OnServerInvoke = function(player: Player, ownerUserId: any, tileIndex: any)
+	local outcome, owner = PlotService.help(player, ownerUserId, tileIndex)
+	pushState(player)
+	if owner then
+		pushState(owner)
+		noticeRemote:FireClient(
+			owner,
+			("%s tended your %s — %s sooner."):format(
+				player.DisplayName,
+				outcome.species or "plant",
+				Format.duration(outcome.amount or 0)
+			)
+		)
+	end
+	return outcome
+end
+
 -- -- ticks ------------------------------------------------------------------ --
 
 PlotService.init()
@@ -196,7 +246,7 @@ task.spawn(function()
 	while true do
 		task.wait(RENDER_SECONDS)
 		for _, player in Players:GetPlayers() do
-			PlotService.renderAll(player)
+			refresh(player)
 			pushState(player)
 		end
 	end

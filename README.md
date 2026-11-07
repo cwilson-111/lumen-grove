@@ -115,6 +115,48 @@ simply unmutated.
   tile costs 150, each next one ~32% more, the 25th ~9,600. Tiles 1–9 are the
   centre, in the original order, so old saves keep every plant in place.
 
+### Neighbour bonuses: arranging the grid
+
+Every species boosts the plants directly beside it (up, down, left, right —
+never diagonal). The bonus is read from the plot **at harvest**, never
+stored, so growth stays a pure function of time and nothing can stack past
+four sides. The prompt previews it (`Voidlily · +30%`) and the harvest message
+names it.
+
+| Species | Gives its neighbours |
+|---|---|
+| Glowcap | +10% to anything |
+| Emberbloom | +30% to Voidlily |
+| Voidlily | +30% to Moonpetal |
+| Moonpetal | +30% to Starcap |
+| Starcap | +15% to anything |
+
+Mutations multiply on top: a Golden Voidlily with an Emberbloom and a
+Glowcap beside it pays 520 × 1.4 × 3.
+
+### Daily dew: a reason to come back tomorrow, with no streak
+
+Once per UTC day a dewdrop waits on the player's plot; collecting it pays
+`max(100, best species value ever harvested) × (1 + 0.1 × dews ever
+collected, capped at 20)`. On a grove's first day there is no dew, only *"your
+first dew falls in …"* — the hook for day two. The count of dews collected
+never resets: missing a week costs nothing (*play days per user* without a
+streak to lose). `src/server/Daily.luau`.
+
+### Helping: co-play, rewarded and never required
+
+Visitors see one prompt on someone else's plot — **Help tend**, only on a
+plant that can be tended right now. It is the owner's ordinary tend (same
+cap, same cooldown), so helping can never make a plant grow faster than
+attentive play could. The helper earns 3% of the plant's value, doubled
+between Roblox friends; the owner gets a notice. Visitors can never plant on,
+harvest or unlock tiles on another plot, and the server checks they are
+standing at the plant.
+
+Prompts carry a `Role` (`owner`/`visitor`) and an `Active` attribute set by
+the server; each client enables only the active prompts meant for it, so the
+same plot shows different prompts to its owner and to everyone else.
+
 ### The grove
 
 The world is a night forest: plots stand in a ring of eight around a hub
@@ -165,6 +207,7 @@ src/shared/Config.luau     tunables; species, mutations, grid, ring, skins
 src/shared/Growth.luau     the pure growth/payout math
 src/shared/Format.luau     durations for prompts and the picker
 src/server/Profiles.luau   DataStore persistence, versioned, retrying
+src/server/Daily.luau      the daily dew
 src/server/PlotService.luau  authoritative plot state and world rendering
 src/server/Skins.luau      skin ownership (game passes) and equipping
 src/server/Main.server.luau  remotes, join/leave, autosave, cosmetic tick
@@ -196,6 +239,26 @@ the bridge reports `Edit datamodel is not available in Play mode`.
 `tools/world.luau` is sent the same way, as-is, **after** a deploy (it reads
 the deployed `Config`). Both write into the open place only: **File →
 Publish to Roblox** to keep them.
+
+### Icon and thumbnails
+
+`assets/marketing/` holds the uploaded icon (512×512) and thumbnail
+(1920×1080, 16:9). Both are real in-game captures: plants staged on a plot
+during a playtest, UI hidden, `screen_capture` with a camera position (it
+returns the JPEG as base64 in `rawContent`), then cropped and titled with
+Pillow. Nothing staged is saved: it lives in the playtest only.
+
+Uploaded from a logged-in Creator Dashboard browser session with `fetch`:
+
+| What | Endpoint (cookie + `x-csrf-token` retry) |
+|---|---|
+| Icon | `POST publish.roblox.com/v1/games/{universeId}/icon`, form field `Files` |
+| Detail-page thumbnail | `POST publish.roblox.com/v1/games/{universeId}/thumbnail/image`, `Files` |
+| Home thumbnail | `POST apis.roblox.com/thumbnail-personalization-api/v1/universes/{id}/thumbnails/uploads` (`files`), poll `…/uploads/status`, then `…/personalization/create` with the `homepageThumbnailId` |
+
+The Open Cloud Assets API (`assets/v1/assets`) rejects cookie auth, and the
+MCP `open_cloud_invoke` tool cannot upload files from a directory Studio has
+not approved.
 
 ### Testing notes, learned the hard way
 
@@ -231,16 +294,17 @@ Publish to Roblox** to keep them.
 - `ProximityPrompt:InputHoldBegin()`/`InputHoldEnd()` from the `Client`
   datamodel presses a real prompt, which tests the client's routing too, not
   just the remote behind it. Stand within `MaxActivationDistance` first.
+- **Studio's multi-client test windows do not attach to the MCP bridge**
+  (Test → Clients and Servers). Only the Edit window is listed, so anything
+  needing two players — helping — has to be played by hand in those windows.
 
 ## Not built yet
 
-- Adjacency bonuses between species, so arranging the grid is worth time.
-- A daily reward with no streak to lose (*play days per user*).
-- Co-op: helping on a friend's plot, rewarded and never required. Today the
-  client refuses prompts on someone else's plot ("That's someone else's
-  grove."); everyone still *sees* their neighbours' prompts.
+- Plants are plain glowing spheres; species-specific shapes (stem and cap,
+  like the grove's decorative mushrooms) would read better on the plot and in
+  thumbnails.
 - Monetization, continued: time-skips that never gate content. Tending stays
   the free version of a time-skip. (A second plot slot is less obvious now
   that one plot grows to 5×5.)
-- A custom thumbnail. **Required** for any Home impressions — a place with the
-  default thumbnail is ineligible.
+- More Home thumbnails: personalization only starts with **two or more**
+  active, and one is active today.

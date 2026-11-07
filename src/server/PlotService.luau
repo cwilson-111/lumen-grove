@@ -4,12 +4,19 @@
 	harvest pays.
 
 	The client sends intents only -- "plant species X on tile 4", "tap tile
-	4", "unlock the next tile". It never sends a price, a payout, a timestamp
-	or a balance. Every number here is read from Config or from os.time() on
-	this machine, so the only thing a modified client can do is ask for
-	something it is not allowed to have, and be told no.
+	4", "unlock the next tile", "help tend tile 4 of that plot". It never
+	sends a price, a payout, a timestamp or a balance. Every number here is
+	read from Config or from os.time() on this machine, so the only thing a
+	modified client can do is ask for something it is not allowed to have,
+	and be told no.
+
+	Prompts are never enabled or disabled here. Each carries a `Role`
+	("owner" or "visitor") and an `Active` attribute; every client turns on
+	only the prompts that are active *and* meant for it, because the same
+	plot needs different prompts for its owner and for everyone else.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -34,8 +41,24 @@ export type Outcome = {
 	-- Set on a harvest that paid out a mutation, so the caller can decide
 	-- whether to tell the server.
 	mutation: string?,
+	-- The species name involved, for the caller's announcements.
 	species: string?,
+	-- Seconds of head start a tend added, for telling a helped owner.
+	amount: number?,
 }
+
+local function newPrompt(name: string, role: string, index: number, parent: Instance): ProximityPrompt
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = name
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("Role", role)
+	prompt:SetAttribute("Active", false)
+	prompt:SetAttribute("TileIndex", index)
+	prompt.Parent = parent
+	return prompt
+end
 
 -- -- world ------------------------------------------------------------- --
 
@@ -106,15 +129,12 @@ local function buildPlot(slot: number): Model
 		tile.TopSurface = Enum.SurfaceType.Smooth
 		tile.Parent = model
 
-		-- One prompt per tile is the whole input surface. No free-form
-		-- clicking, so the client cannot address a tile that does not exist.
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "Prompt"
-		prompt.HoldDuration = 0
-		prompt.MaxActivationDistance = 14
-		prompt.RequiresLineOfSight = false
-		prompt:SetAttribute("TileIndex", index)
-		prompt.Parent = tile
+		-- One owner prompt and one visitor prompt per tile is the whole
+		-- input surface. No free-form clicking, so the client cannot address
+		-- a tile that does not exist.
+		newPrompt("Prompt", "owner", index, tile)
+		local help = newPrompt("HelpPrompt", "visitor", index, tile)
+		help.ActionText = "Help tend"
 	end
 
 	model.Parent = plotsFolder
@@ -194,10 +214,14 @@ end
 ]]
 local function drawEmptyTile(tile: Part, index: number, tileCount: number)
 	local prompt = tile:FindFirstChild("Prompt") :: ProximityPrompt?
+	local help = tile:FindFirstChild("HelpPrompt") :: ProximityPrompt?
+	if help then
+		help:SetAttribute("Active", false)
+	end
 	if index <= tileCount then
 		tile.Transparency = 0
 		if prompt then
-			prompt.Enabled = true
+			prompt:SetAttribute("Active", true)
 			prompt.ActionText = "Plant"
 			prompt.ObjectText = "Tile " .. index
 		end
@@ -206,14 +230,14 @@ local function drawEmptyTile(tile: Part, index: number, tileCount: number)
 		-- to say which one it is buying.
 		tile.Transparency = NEXT_TRANSPARENCY
 		if prompt then
-			prompt.Enabled = true
+			prompt:SetAttribute("Active", true)
 			prompt.ActionText = "Unlock"
 			prompt.ObjectText = ("%d lumen"):format(Config.tileUnlockCost(index))
 		end
 	else
 		tile.Transparency = LOCKED_TRANSPARENCY
 		if prompt then
-			prompt.Enabled = false
+			prompt:SetAttribute("Active", false)
 		end
 	end
 end
@@ -230,6 +254,10 @@ local function resetPlot(plot: Model)
 		end
 	end
 	setSign(plot, "")
+	local dew = plot:FindFirstChild("Dewdrop")
+	if dew then
+		dew:Destroy()
+	end
 	paint(plot, Config.SKINS[1])
 end
 
@@ -258,6 +286,7 @@ local function renderTile(player: Player, index: number)
 		return
 	end
 	local prompt = tilePart:FindFirstChild("Prompt") :: ProximityPrompt?
+	local help = tilePart:FindFirstChild("HelpPrompt") :: ProximityPrompt?
 	local saved = profile.tiles[tostring(index)]
 	local existing = plantPart(plot, index)
 	local species = saved and Config.speciesById(saved.species)
@@ -325,9 +354,15 @@ local function renderTile(player: Player, index: number)
 	end
 
 	tilePart.Transparency = 0
+	local bonus = Growth.neighbourBonus(profile.tiles, index)
+	local name = mutation and ("%s %s"):format(mutation.name, species.name) or species.name
+	if bonus > 0 then
+		name = ("%s · +%d%%"):format(name, math.floor(bonus * 100 + 0.5))
+	end
+	local tendable = not ripe and Growth.tendAmount(saved, now) > 0 and Growth.tendCooldown(saved, now) <= 0
 	if prompt then
-		prompt.Enabled = true
-		prompt.ObjectText = mutation and ("%s %s"):format(mutation.name, species.name) or species.name
+		prompt:SetAttribute("Active", true)
+		prompt.ObjectText = name
 		local remaining = Format.duration(Growth.secondsRemaining(saved, now))
 		if ripe then
 			prompt.ActionText = "Harvest"
@@ -335,11 +370,16 @@ local function renderTile(player: Player, index: number)
 			-- Fully tended: nothing more to gain, so do not invite a press
 			-- that can only be refused.
 			prompt.ActionText = ("Growing · %s"):format(remaining)
-		elseif Growth.tendCooldown(saved, now) > 0 then
+		elseif not tendable then
 			prompt.ActionText = ("Tend in %s · %s"):format(Format.duration(Growth.tendCooldown(saved, now)), remaining)
 		else
 			prompt.ActionText = ("Tend · %s"):format(remaining)
 		end
+	end
+	if help then
+		-- Visitors are only ever offered a press that will work.
+		help:SetAttribute("Active", tendable)
+		help.ObjectText = ("%s's %s"):format(player.DisplayName, species.name)
 	end
 end
 
@@ -425,7 +465,10 @@ function PlotService.harvest(player: Player, tileIndex: any): Outcome
 	end
 
 	local now = os.time()
-	local payout = Growth.payout(saved, now)
+	-- Read the neighbours before the tile is cleared; the bonus is the board
+	-- as it stands at this moment.
+	local bonus = Growth.neighbourBonus(profile.tiles, tileIndex)
+	local payout = Growth.payout(saved, now, bonus)
 	if payout <= 0 then
 		return {
 			ok = false,
@@ -438,35 +481,28 @@ function PlotService.harvest(player: Player, tileIndex: any): Outcome
 	profile.tiles[slotKey] = nil
 	profile.lumen += payout
 	profile.harvested += 1
+	local species = Config.speciesById(saved.species)
+	if species then
+		profile.bestValue = math.max(profile.bestValue, species.value)
+	end
 	renderTile(player, tileIndex)
 
-	local species = Config.speciesById(saved.species)
+	local extra = bonus > 0 and ("  (+%d%% from neighbours)"):format(math.floor(bonus * 100 + 0.5)) or ""
 	local mutation = Config.mutationById(saved.mutation)
 	if mutation and species then
 		return {
 			ok = true,
-			message = ("%s %s!  +%d lumen."):format(mutation.name, species.name, payout),
+			message = ("%s %s!  +%d lumen.%s"):format(mutation.name, species.name, payout, extra),
 			mutation = mutation.id,
 			species = species.name,
 		}
 	end
-	return { ok = true, message = ("+%d lumen."):format(payout) }
+	return { ok = true, message = ("+%d lumen.%s"):format(payout, extra) }
 end
 
-function PlotService.tend(player: Player, tileIndex: any): Outcome
-	local profile = Profiles.get(player)
-	if not profile then
-		return { ok = false, message = "Your grove is still loading." }
-	end
-	if not ownedTile(profile, tileIndex) then
-		return { ok = false, message = "No such tile." }
-	end
-
-	local saved = profile.tiles[tostring(tileIndex)]
-	if not saved then
-		return { ok = false, message = "Nothing growing there." }
-	end
-
+-- The tend itself, shared by an owner tending and a visitor helping. The
+-- caller has already validated the tile against `owner`'s profile.
+local function tendTile(owner: Player, saved: any, tileIndex: number): Outcome
 	local now = os.time()
 	local cooldown = Growth.tendCooldown(saved, now)
 	if cooldown > 0 then
@@ -478,11 +514,169 @@ function PlotService.tend(player: Player, tileIndex: any): Outcome
 	end
 
 	-- Both written from this machine's clock and Growth's own answer; nothing
-	-- here comes from the client but the index, already validated above.
+	-- here comes from the client but the index, already validated.
 	saved.boost = (saved.boost or 0) + amount
 	saved.lastTended = now
-	renderTile(player, tileIndex)
-	return { ok = true, message = ("Tended — %s sooner."):format(Format.duration(amount)) }
+	renderTile(owner, tileIndex)
+	return { ok = true, message = ("Tended — %s sooner."):format(Format.duration(amount)), amount = amount }
+end
+
+function PlotService.tend(player: Player, tileIndex: any): Outcome
+	local profile = Profiles.get(player)
+	if not profile then
+		return { ok = false, message = "Your grove is still loading." }
+	end
+	if not ownedTile(profile, tileIndex) then
+		return { ok = false, message = "No such tile." }
+	end
+	local saved = profile.tiles[tostring(tileIndex)]
+	if not saved then
+		return { ok = false, message = "Nothing growing there." }
+	end
+	return tendTile(player, saved, tileIndex)
+end
+
+-- [helper][ownerUserId] = whether they are Roblox friends. IsFriendsWith is
+-- a web call; a friendship does not change mid-session often enough to ask
+-- again on every tend.
+local friendCache: { [Player]: { [number]: boolean } } = {}
+
+local function areFriends(helper: Player, owner: Player): boolean
+	local known = friendCache[helper]
+	if not known then
+		known = {}
+		friendCache[helper] = known
+	end
+	assert(known)
+	local cached = known[owner.UserId]
+	if cached ~= nil then
+		return cached
+	end
+	local ok, result = pcall(function()
+		return helper:IsFriendsWith(owner.UserId)
+	end)
+	-- A failed lookup counts as "not friends" and is not cached, so it is
+	-- asked again next time rather than costing the pair their bonus forever.
+	if ok then
+		known[owner.UserId] = result
+		return result
+	end
+	return false
+end
+
+--[[
+	A visitor tends a growing plant on someone else's plot. The owner's plant
+	gets an ordinary tend -- same cap, same cooldown -- and the helper earns a
+	small share of the plant's value. A visitor can never plant on, harvest
+	from or otherwise change another player's plot.
+
+	Returns (outcome for the helper, owner to notify or nil).
+]]
+function PlotService.help(helper: Player, ownerUserId: any, tileIndex: any): (Outcome, Player?)
+	local helperProfile = Profiles.get(helper)
+	if not helperProfile then
+		return { ok = false, message = "Your grove is still loading." }, nil
+	end
+	if typeof(ownerUserId) ~= "number" then
+		return { ok = false, message = "No one to help there." }, nil
+	end
+	local owner = Players:GetPlayerByUserId(ownerUserId)
+	local ownerProfile = owner and Profiles.get(owner)
+	if not owner or owner == helper or not ownerProfile then
+		return { ok = false, message = "No one to help there." }, nil
+	end
+	if not ownedTile(ownerProfile, tileIndex) then
+		return { ok = false, message = "No such tile." }, nil
+	end
+
+	-- The helper has to actually be at the plant: a remote fired from across
+	-- the map is not helping.
+	local plot = PlotService.plotOf(owner)
+	local tilePart = plot and plot:FindFirstChild("Tile" .. tileIndex) :: Part?
+	local character = helper.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not tilePart or not root or (root.Position - tilePart.Position).Magnitude > Config.HELP_REACH then
+		return { ok = false, message = "Get closer to help." }, nil
+	end
+
+	local saved = ownerProfile.tiles[tostring(tileIndex)]
+	local species = saved and Config.speciesById(saved.species)
+	if not saved or not species then
+		return { ok = false, message = "Nothing growing there." }, nil
+	end
+	if Growth.isRipe(saved, os.time()) then
+		return { ok = false, message = ("It's ripe — that's %s's to harvest."):format(owner.DisplayName) }, nil
+	end
+
+	local tended = tendTile(owner, saved, tileIndex)
+	if not tended.ok then
+		return tended, nil
+	end
+	local friends = areFriends(helper, owner)
+	local reward = Config.helpReward(species, friends)
+	helperProfile.lumen += reward
+	return {
+		ok = true,
+		message = ("Helped %s's %s — +%d lumen%s."):format(
+			owner.DisplayName,
+			species.name,
+			reward,
+			friends and " (friends ×2)" or ""
+		),
+		species = species.name,
+		amount = tended.amount,
+	},
+		owner
+end
+
+--[[
+	Show or remove the day's dewdrop on a player's plot. Its prompt is for
+	the owner only; everyone else just sees the drop.
+]]
+function PlotService.setDew(player: Player, ready: boolean)
+	local plot = PlotService.plotOf(player)
+	if not plot then
+		return
+	end
+	local existing = plot:FindFirstChild("Dewdrop")
+	if not ready then
+		if existing then
+			existing:Destroy()
+		end
+		return
+	end
+	if existing then
+		return
+	end
+	local base = plot:FindFirstChild("Base") :: Part?
+	if not base then
+		return
+	end
+	local drop = Instance.new("Part")
+	drop.Name = "Dewdrop"
+	drop.Shape = Enum.PartType.Ball
+	drop.Size = Vector3.new(2.6, 2.6, 2.6)
+	drop.Anchored = true
+	drop.CanCollide = false
+	drop.CastShadow = false
+	drop.Material = Enum.Material.Neon
+	drop.Color = Color3.fromRGB(150, 230, 255)
+	-- Over the hub-facing border, beside the owner's sign: the first thing a
+	-- player walking home from the hub reaches.
+	drop.CFrame = base.CFrame * CFrame.new(0, 3.5, -(base.Size.Z / 2) + 1.5)
+	local light = Instance.new("PointLight")
+	light.Color = drop.Color
+	light.Range = 12
+	light.Brightness = 2
+	light.Parent = drop
+	local sparkles = Instance.new("Sparkles")
+	sparkles.SparkleColor = drop.Color
+	sparkles.Parent = drop
+	local prompt = newPrompt("DewPrompt", "owner", 0, drop)
+	prompt.ActionText = "Collect"
+	prompt.ObjectText = "Morning dew"
+	prompt:SetAttribute("Active", true)
+	drop.Parent = plot
 end
 
 --[[
@@ -580,6 +774,7 @@ end
 function PlotService.release(player: Player)
 	local slot = assigned[player]
 	assigned[player] = nil
+	friendCache[player] = nil
 	local plot = slot and plotModels[slot]
 	if plot then
 		plot:SetAttribute("OwnerUserId", 0)

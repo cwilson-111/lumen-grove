@@ -24,6 +24,9 @@ local stateRemote = remotes:WaitForChild("State") :: RemoteEvent
 local skinRemote = remotes:WaitForChild("Skin") :: RemoteFunction
 local expandRemote = remotes:WaitForChild("Expand") :: RemoteFunction
 local announceRemote = remotes:WaitForChild("Announce") :: RemoteEvent
+local dewRemote = remotes:WaitForChild("CollectDew") :: RemoteFunction
+local helpRemote = remotes:WaitForChild("Help") :: RemoteFunction
+local noticeRemote = remotes:WaitForChild("Notice") :: RemoteEvent
 
 local selectedSpecies = Config.SPECIES[1].id
 local latest: any = nil
@@ -54,11 +57,11 @@ local function panel(name: string, position: UDim2, size: UDim2): Frame
 	return frame
 end
 
-local balancePanel = panel("Balance", UDim2.new(0, 16, 0, 16), UDim2.new(0, 260, 0, 64))
+local balancePanel = panel("Balance", UDim2.new(0, 16, 0, 16), UDim2.new(0, 260, 0, 84))
 
 local balanceLabel = Instance.new("TextLabel")
-balanceLabel.Size = UDim2.new(1, -20, 1, 0)
-balanceLabel.Position = UDim2.new(0, 14, 0, 0)
+balanceLabel.Size = UDim2.new(1, -20, 0, 50)
+balanceLabel.Position = UDim2.new(0, 14, 0, 4)
 balanceLabel.BackgroundTransparency = 1
 balanceLabel.TextXAlignment = Enum.TextXAlignment.Left
 balanceLabel.Font = Enum.Font.GothamBold
@@ -67,8 +70,23 @@ balanceLabel.TextColor3 = Color3.fromRGB(236, 240, 248)
 balanceLabel.Text = "Loading your grove…"
 balanceLabel.Parent = balancePanel
 
-local pickerHeight = 44 * #Config.SPECIES + 48
-local picker = panel("Picker", UDim2.new(0, 16, 0, 92), UDim2.new(0, 260, 0, pickerHeight))
+-- The daily dew's status: ready, how long until the next, or (on day one)
+-- the promise of tomorrow's.
+local dewLabel = Instance.new("TextLabel")
+dewLabel.Name = "Dew"
+dewLabel.Size = UDim2.new(1, -20, 0, 22)
+dewLabel.Position = UDim2.new(0, 14, 0, 52)
+dewLabel.BackgroundTransparency = 1
+dewLabel.TextXAlignment = Enum.TextXAlignment.Left
+dewLabel.Font = Enum.Font.GothamMedium
+dewLabel.TextSize = 13
+dewLabel.TextColor3 = Color3.fromRGB(150, 230, 255)
+dewLabel.Text = ""
+dewLabel.Parent = balancePanel
+
+local ROW = 52
+local pickerHeight = ROW * #Config.SPECIES + 40
+local picker = panel("Picker", UDim2.new(0, 16, 0, 112), UDim2.new(0, 260, 0, pickerHeight))
 
 local pickerTitle = Instance.new("TextLabel")
 pickerTitle.Size = UDim2.new(1, -20, 0, 34)
@@ -87,6 +105,16 @@ local function harvestedSoFar(): number
 	return latest and latest.harvested or 0
 end
 
+-- What a species does for its neighbours, in a few words.
+local function auraText(species: Config.Species): string
+	local percent = math.floor(species.aura.bonus * 100 + 0.5)
+	local target = species.aura.target and Config.speciesById(species.aura.target)
+	if target then
+		return ("+%d%% to %s beside it"):format(percent, target.name)
+	end
+	return ("+%d%% to anything beside it"):format(percent)
+end
+
 local function refreshPicker()
 	for _, species in Config.SPECIES do
 		local button = buttons[species.id]
@@ -97,17 +125,19 @@ local function refreshPicker()
 		button.TextColor3 = chosen and Color3.fromRGB(14, 16, 20)
 			or locked and Color3.fromRGB(140, 146, 160)
 			or Color3.fromRGB(226, 232, 242)
-		button.Text = locked
-				and ("%s  ·  at %d harvests"):format(species.name, species.unlockHarvests)
+		local headline = locked and ("%s  ·  at %d harvests"):format(species.name, species.unlockHarvests)
 			or ("%s  ·  %d  ·  %s"):format(species.name, species.cost, Format.duration(species.growSeconds))
+		button.Text = ('%s\n<font size="11">%s</font>'):format(headline, auraText(species))
 	end
 end
 
 for index, species in Config.SPECIES do
 	local button = Instance.new("TextButton")
 	button.Name = species.id
-	button.Size = UDim2.new(1, -28, 0, 36)
-	button.Position = UDim2.new(0, 14, 0, 34 + (index - 1) * 44)
+	button.Size = UDim2.new(1, -28, 0, ROW - 8)
+	button.Position = UDim2.new(0, 14, 0, 34 + (index - 1) * ROW)
+	button.RichText = true
+	button.LineHeight = 1.05
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
 	button.Font = Enum.Font.GothamMedium
@@ -310,6 +340,14 @@ stateRemote.OnClientEvent:Connect(function(summary)
 	-- missing codepoint as a tofu box rather than falling back to a font
 	-- that has it.
 	balanceLabel.Text = ("%d lumen   ·   %d harvested"):format(summary.lumen, summary.harvested)
+	local dew = summary.dew
+	if dew.ready then
+		dewLabel.Text = ("Morning dew waiting on your plot (+%d)"):format(dew.amount)
+	elseif dew.firstDay then
+		dewLabel.Text = ("Your first dew falls in %s"):format(Format.duration(dew.nextIn))
+	else
+		dewLabel.Text = ("Next dew in %s"):format(Format.duration(dew.nextIn))
+	end
 	refreshPicker()
 
 	shownSkin = summary.skin
@@ -329,20 +367,116 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(buyer, gamePa
 	end
 end)
 
+-- Something happened to this player that they did not cause: a friend
+-- tended one of their plants.
+noticeRemote.OnClientEvent:Connect(function(text: string)
+	say(text, true)
+end)
+
+-- -- prompts ------------------------------------------------------------ --
+
+--[[
+	Each plot carries prompts for its owner (plant, tend, harvest, unlock,
+	collect dew) and for visitors (help tend). The server marks which are
+	`Active`; this client turns on only the active ones meant for it. Enabled
+	is a local property here -- the server never writes it -- so what one
+	player sees never changes what another does.
+]]
+local plotsFolder = workspace:WaitForChild("Plots")
+
+local function plotOf(instance: Instance): Model?
+	local plot = instance:FindFirstAncestorWhichIsA("Model")
+	return plot and plot.Parent == plotsFolder and plot or nil
+end
+
+local function applyPrompt(prompt: ProximityPrompt)
+	local role = prompt:GetAttribute("Role")
+	if role == nil then
+		return
+	end
+	local plot = plotOf(prompt)
+	local mine = plot ~= nil and plot:GetAttribute("OwnerUserId") == player.UserId
+	local owned = plot ~= nil and (plot:GetAttribute("OwnerUserId") or 0) ~= 0
+	local wanted = prompt:GetAttribute("Active") == true
+		and owned
+		and ((role == "owner") == mine)
+	if prompt.Enabled ~= wanted then
+		prompt.Enabled = wanted
+	end
+end
+
+local function watchPrompt(prompt: ProximityPrompt)
+	applyPrompt(prompt)
+	prompt:GetAttributeChangedSignal("Active"):Connect(function()
+		applyPrompt(prompt)
+	end)
+end
+
+local function watchPlot(plot: Instance)
+	if not plot:IsA("Model") then
+		return
+	end
+	plot:GetAttributeChangedSignal("OwnerUserId"):Connect(function()
+		for _, descendant in plot:GetDescendants() do
+			if descendant:IsA("ProximityPrompt") then
+				applyPrompt(descendant)
+			end
+		end
+	end)
+end
+
+for _, plot in plotsFolder:GetChildren() do
+	watchPlot(plot)
+end
+plotsFolder.ChildAdded:Connect(watchPlot)
+for _, descendant in plotsFolder:GetDescendants() do
+	if descendant:IsA("ProximityPrompt") then
+		watchPrompt(descendant)
+	end
+end
+plotsFolder.DescendantAdded:Connect(function(descendant)
+	if descendant:IsA("ProximityPrompt") then
+		watchPrompt(descendant)
+	end
+end)
+
+local function invoke(remote: RemoteFunction, ...: any)
+	local args = table.pack(...)
+	local ok, outcome = pcall(function()
+		return remote:InvokeServer(table.unpack(args, 1, args.n))
+	end)
+	if not ok then
+		say("Lost contact with the grove.", false)
+		return
+	end
+	say(outcome.message, outcome.ok)
+end
+
 ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer)
 	if triggeringPlayer ~= player then
 		return
 	end
+	local plot = plotOf(prompt)
+	if not plot then
+		return
+	end
+
+	if prompt.Name == "DewPrompt" then
+		invoke(dewRemote)
+		return
+	end
+
 	local tileIndex = prompt:GetAttribute("TileIndex")
 	if typeof(tileIndex) ~= "number" then
 		return
 	end
-	-- Every plot's prompts show for everyone, but the server applies an
-	-- intent to the sender's own plot. Pressing a tile on a neighbour's
-	-- plot would otherwise plant on your own tile of the same number.
-	local plot = prompt:FindFirstAncestorWhichIsA("Model")
-	if not plot or plot:GetAttribute("OwnerUserId") ~= player.UserId then
-		say("That's someone else's grove.", false)
+	if prompt.Name == "HelpPrompt" then
+		invoke(helpRemote, plot:GetAttribute("OwnerUserId"), tileIndex)
+		return
+	end
+	-- The owner prompt is only ever enabled on this player's own plot (see
+	-- applyPrompt), and the server applies it to the sender's own plot.
+	if plot:GetAttribute("OwnerUserId") ~= player.UserId then
 		return
 	end
 
@@ -352,26 +486,13 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer
 	-- stale.
 	local tileCount = latest and latest.tileCount or Config.STARTING_TILES
 	local occupied = latest and latest.tiles[tostring(tileIndex)]
-	local ok, outcome
 	if tileIndex > tileCount then
-		ok, outcome = pcall(function()
-			return expandRemote:InvokeServer()
-		end)
+		invoke(expandRemote)
 	elseif occupied then
-		ok, outcome = pcall(function()
-			return tapRemote:InvokeServer(tileIndex)
-		end)
+		invoke(tapRemote, tileIndex)
 	else
-		ok, outcome = pcall(function()
-			return plantRemote:InvokeServer(tileIndex, selectedSpecies)
-		end)
+		invoke(plantRemote, tileIndex, selectedSpecies)
 	end
-
-	if not ok then
-		say("Lost contact with the grove.", false)
-		return
-	end
-	say(outcome.message, outcome.ok)
 end)
 
 print("[LumenGrove] client ready")

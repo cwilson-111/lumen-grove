@@ -123,18 +123,44 @@ function Growth.tendCooldown(tile: Tile, now: number): number
 end
 
 --[[
+	The neighbour bonus a tile would get if harvested now: the sum of every
+	orthogonal neighbour's aura that applies to its species. Read from the
+	board as it stands, never stored (see Config, NEIGHBOUR BONUSES), so the
+	same function serves the payout and the prompt that previews it.
+]]
+function Growth.neighbourBonus(tiles: { [string]: Tile }, index: number): number
+	local tile = tiles[tostring(index)]
+	if not tile then
+		return 0
+	end
+	local total = 0
+	for _, other in Config.NEIGHBOURS[index] do
+		local neighbour = tiles[tostring(other)]
+		local species = neighbour and Config.speciesById(neighbour.species)
+		if species and (species.aura.target == nil or species.aura.target == tile.species) then
+			total += species.aura.bonus
+		end
+	end
+	return total
+end
+
+--[[
 	What harvesting this tile pays. Deliberately zero before ripeness rather
 	than a pro-rata amount, so there is no incentive to spam-harvest early,
 	and so the server's answer is a single comparison rather than a curve
 	that has to agree with the client's.
+
+	`bonus` is the neighbour bonus (0.3 = +30%); the mutation multiplies on
+	top of it.
 ]]
-function Growth.payout(tile: Tile, now: number): number
+function Growth.payout(tile: Tile, now: number, bonus: number?): number
 	local species = Config.speciesById(tile.species)
 	if not species or not Growth.isRipe(tile, now) then
 		return 0
 	end
 	local mutation = Config.mutationById(tile.mutation)
-	return species.value * (mutation and mutation.multiplier or 1)
+	local multiplier = (1 + (bonus or 0)) * (mutation and mutation.multiplier or 1)
+	return math.floor(species.value * multiplier + 0.5)
 end
 
 return Growth
