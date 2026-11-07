@@ -75,12 +75,30 @@ ranking signals. Start with the one that cannot feel like a paywall:
 Constraint: no purchase may make a non-paying player's game worse. Tending is
 the free version of a time-skip; keep it that way.
 
-## Blocked
+## First thing after the omp restart
 
-- **Native Studio tools need an omp restart.** `~/.omp/agent/mcp.json`
-  registers `roblox-studio`, but MCP servers resolve at session start, so a
-  session older than that file cannot call them. Until then use
-  `tools/studio.py` and `tools/deploy.py`. After a restart, delete both.
+The user restarted omp to load two things that only resolve at session
+start. Confirm both before doing anything else:
+
+1. **Studio MCP tools are native.** The `roblox-studio` server from
+   `~/.omp/agent/mcp.json` should expose `execute_luau`, `start_stop_play`,
+   `screen_capture`, `get_console_output` and the rest directly. If they are
+   there, `tools/studio.py` is redundant.
+2. **The usage-budget hook is live.** `/budget` should answer with spend
+   against `~/.omp/agent/usage-budget.json`. That config is still the
+   installer's **placeholder** ($60 / 5h) — ask the user for their real plan
+   limits rather than guessing.
+
+Then, about the two scripts in `tools/`:
+
+- **`studio.py`** — delete it once (1) is confirmed. It only existed to reach
+  the bridge from a session that predated the config.
+- **`deploy.py`** — **keep it, but port it.** It is not a stopgap: it syncs
+  `src/` on disk into the DataModel, which the native tools do not do. It
+  currently imports `Session` from `studio.py`, so rewrite it to emit the
+  same Luau and send it through the native `execute_luau`, or replace it with
+  Roblox's built-in Script Sync. Do not delete it along with `studio.py`, or
+  there is no way left to get `src/` into Studio.
 
 ## Deliberately not done
 
