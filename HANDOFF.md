@@ -53,12 +53,14 @@ Verified by driving the live place over Studio MCP unless marked otherwise.
       Plant per tile; Starcap 8 parts, Moonpetal 6, Voidlily 2). Caps use a
       saturated version of the species colour — Neon bleached the pastels.
       Real values redeployed and confirmed in the place's Config.
+- [x] **Published by the user** as place version 3: includes PlantModels,
+      the grove world, the moved spawn. Name, description and server size
+      survived the publish (Open Cloud read-back: "Lumen Grove", 8).
 
 ## Not yet done / needs the user
 
-- **Publish the place** (File → Publish to Roblox). Every script change
-  exists only in the open Studio session until then. If Studio's Game
-  Settings still shows the old name "first", do not save over it there.
+- **After any further `deploy.py` or `world.luau` run, publish again** — both
+  only change the open Studio session.
 - **Developer save inflated by testing.** The fast test build paid real
   Starcap harvests into the dev account's DataStore profile (+19,375 in one
   harvest; lumen and harvest count are well above normal play).
